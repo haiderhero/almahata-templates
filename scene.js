@@ -627,7 +627,7 @@ export function drawContactCard(ctx, S, look = 'night') {
 
   // logo on the right (Arabic reads from there)
   const lw = 300, lh = lw * logoRatio();
-  drawLogo(ctx, { x: W - m - 40 - lw, y: (H - lh) / 2, w: lw, look: sun ? 'indigo' : 'color' });
+  drawLogo(ctx, { x: W - m - 40 - lw, y: (H - lh) / 2, w: lw, look: sun ? 'night' : 'color' });
   ctx.fillStyle = sun ? 'rgba(13,11,42,.22)' : 'rgba(255,255,255,.14)';
   ctx.fillRect(W - m - 40 - lw - 34, 80, 3, H - 160);
 
