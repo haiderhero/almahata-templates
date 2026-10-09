@@ -66,7 +66,9 @@
   .seg button.on { background: var(--text); color: var(--night); }
 
   .label { font-weight: 800; font-size: 14px; color: var(--muted); margin-bottom: -6px; }
-  .designs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .designs { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x proximity; padding: 4px 4px 8px; margin: 0 -4px; scrollbar-width: none; }
+  .designs::-webkit-scrollbar { display: none; }
+  .designs > button { flex: 0 0 calc((100% - 34px) / 4.35); scroll-snap-align: start; }
   .designs button { display: grid; gap: 6px; justify-items: center; font-weight: 700; font-size: 13.5px; color: var(--muted); }
   .designs canvas { width: 100%; aspect-ratio: 9 / 16; border-radius: 10px; background: var(--deep); outline: 2px solid transparent; outline-offset: 2px; transition: outline-color .15s; }
   .post .designs canvas, .designs.post canvas { aspect-ratio: 4 / 5; }
@@ -162,8 +164,8 @@
   <details id="extras">
     <summary>اسم المنتج والسعر <small>(اختياري)</small></summary>
     <div class="fields">
-      <label class="field"><span>اسم المنتج</span><input id="fTitle" placeholder="مثلاً: ثلاجة 18 قدم" maxlength="48" enterkeyhint="done"></label>
-      <label class="field"><span>السعر أو القسط</span><input id="fBadge" placeholder="مثلاً: القسط الشهري ..." maxlength="32" enterkeyhint="done"></label>
+      <label class="field"><span>اسم المنتج <small>(بالهادئ يصير العنوان الكبير)</small></span><input id="fTitle" placeholder="مثلاً: ثلاجة 18 قدم" maxlength="48" enterkeyhint="done"></label>
+      <label class="field"><span>السعر أو القسط <small>(بالهادئ يصير السطر تحته)</small></span><input id="fBadge" placeholder="مثلاً: القسط الشهري ..." maxlength="32" enterkeyhint="done"></label>
     </div>
   </details>
 
@@ -192,6 +194,8 @@
     <label class="field"><span>رقم الهاتف</span><input id="sPhone" dir="ltr" inputmode="tel" placeholder="07XX XXX XXXX"></label>
     <label class="field"><span>حساب الإنستغرام</span><input id="sInsta" dir="ltr" autocapitalize="off" autocomplete="off" placeholder="@account"></label>
     <label class="field"><span>الكلام اللي فوق الرقم والحساب <button type="button" class="reset" data-reset="line">رجّع الأصلي</button></span><input id="sLine" placeholder="(فارغ: ما يطلع شي)"></label>
+    <label class="field"><span>العنوان الكبير (بالتصاميم الهادئة) <button type="button" class="reset" data-reset="head">رجّع الأصلي</button></span><input id="sHead" placeholder="(فارغ: ما يطلع شي)"></label>
+    <label class="field"><span>السطر تحت العنوان <button type="button" class="reset" data-reset="sub">رجّع الأصلي</button></span><input id="sSub" placeholder="(فارغ: ما يطلع شي)"></label>
     <label class="field"><span>العنوان (اختياري)</span><input id="sPlace" placeholder="مثلاً: الحلة، شارع ..."></label>
     <label class="field"><span>كلام الشريط المتحرك (بتصميم بطاقة) <button type="button" class="reset" data-reset="tape">رجّع الأصلي</button></span><input id="sTape" placeholder="(فارغ: يطلع الأصلي)"></label>
     <label class="field"><span>شريط الرقم (بتصميم سريع)</span><select id="sBar"><option value="outline">إطار برتقالي والكتابة بيضاء</option><option value="fill">برتقالي ملوّن</option></select></label>

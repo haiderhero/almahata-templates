@@ -164,7 +164,7 @@ function pills(ctx, cx, y, maxW, info, { h = 84, size = 36, bg = 'rgba(13,11,42,
 }
 
 // ---------- the elements Abbas can move and size ----------
-export const ITEM_NAMES = { logo: 'الشعار', line: 'سطر المحل', contact: 'الرقم والحساب', title: 'اسم المنتج', badge: 'السعر', frame: 'الصورة' };
+export const ITEM_NAMES = { logo: 'الشعار', name: 'الاسم', headline: 'العنوان', line: 'سطر المحل', contact: 'الرقم والحساب', title: 'اسم المنتج', badge: 'السعر', frame: 'الصورة' };
 /**
  * Draw one movable element: `box` is where it sits by default (design pixels); Abbas's offset and
  * size come from S.layout[id]. The final box is kept (S.boxes) so the editor can pick it.
@@ -670,7 +670,206 @@ const quick = {
   },
 };
 
-export const DESIGNS = [house, cinema, card, quick];
+// =====================================================================================
+// 5–6. هادئ — calm, the way the big residential projects post (Abbas: «قالب هادئ ولطيف…
+//    مريح للعين»): the photo clean and whole, thin white lines, the mark and the name small in the
+//    top corners, a big line and a light one bottom-right, the numbers small bottom-left.
+//    A: a level line across + an arc that wraps the words.  B: a short stub, a quarter arc down,
+//    a straight drop to the bottom edge.
+// =====================================================================================
+function calmGeo(W, H, fmt, v) {
+  const story = fmt === 'story';
+  const m = story ? 80 : 70;
+  const g = {
+    m, story,
+    markW: story ? 128 : 110, markY: story ? 268 : 56,
+    nameW: story ? 214 : 190, nameY: story ? 282 : 66,
+    headR: W - m, headBottom: story ? (v === 1 ? 1520 : 1490) : (v === 1 ? 1146 : 1124),
+    headMaxW: W * 0.52, headSize: story ? 94 : 82, subSize: story ? 52 : 44,
+    contactX: m, contactY: story ? 1556 : 1206, contactSize: story ? 34 : 29,
+  };
+  if (v === 1) {
+    g.lineY = story ? H * 0.335 : H * 0.36;
+    g.lineX1 = W * 0.7;
+    // the arc: its leftmost point sits just right of the numbers, the words stay inside it
+    g.arc = story ? { cx: W * 1.037, cy: H * 0.771, r: W * 0.667 } : { cx: W * 0.99, cy: H * 0.822, r: W * 0.6 };
+    g.arcEndY = story ? H * 0.47 : H * 0.5;
+  } else {
+    g.stubY = story ? H * 0.46 : H * 0.44;
+    g.stubX = W * 0.08;
+    g.r = W * (story ? 0.62 : 0.6);
+  }
+  return g;
+}
+
+function calmLines(ctx, W, H, t, g, v) {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,.95)'; ctx.lineWidth = g.story ? 3.2 : 2.8; ctx.lineCap = 'round';
+  ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 10;
+  let dot = null;
+  if (v === 1) {
+    // the level line, from the left edge
+    const p1 = ease.inOut(seg(t, 0.35, 1.5));
+    if (p1 > 0) { ctx.beginPath(); ctx.moveTo(0, g.lineY); ctx.lineTo(g.lineX1 * p1, g.lineY); ctx.stroke(); }
+    dot = { x: g.lineX1, y: g.lineY, at: 1.45 };
+    // the arc, from where it enters at the bottom edge, up round the words
+    const { cx, cy, r } = g.arc;
+    const a0 = Math.PI - Math.asin(Math.min(1, (H - cy) / r));        // the bottom edge
+    const a1 = Math.PI + Math.asin(Math.min(1, (cy - g.arcEndY) / r)); // where it stops, up right
+    const p2 = ease.inOut(seg(t, 0.55, 1.95));
+    if (p2 > 0) { ctx.beginPath(); ctx.arc(cx, cy, r, a0, a0 + (a1 - a0) * p2); ctx.stroke(); }
+  } else {
+    // a short stub from the left edge, a quarter arc down, then straight to the bottom edge
+    const cx = g.stubX + g.r, cy = g.stubY, bottom = cy + g.r;
+    const L1 = g.stubX, L2 = (Math.PI / 2) * g.r, L3 = Math.max(0, H - bottom), L = L1 + L2 + L3;
+    const d = L * ease.inOut(seg(t, 0.35, 2.0));
+    ctx.beginPath(); ctx.moveTo(0, cy);
+    ctx.lineTo(Math.min(d, L1), cy);
+    if (d > L1) ctx.arc(cx, cy, g.r, Math.PI, Math.PI - (Math.PI / 2) * Math.min(1, (d - L1) / L2), true);
+    if (d > L1 + L2) ctx.lineTo(cx, bottom + (d - L1 - L2));
+    ctx.stroke();
+    dot = { x: g.stubX, y: cy, at: 0.55 };
+  }
+  ctx.restore();
+  // one small orange point: the only colour on the picture
+  const u = ease.back(seg(t, dot.at, dot.at + 0.35));
+  if (u > 0) {
+    const pulse = 1 + 0.12 * Math.sin(Math.max(0, t - dot.at - 0.35) * 2.4);
+    ctx.save(); ctx.translate(dot.x, dot.y); ctx.scale(u * pulse, u * pulse);
+    ctx.beginPath(); ctx.arc(0, 0, g.story ? 9 : 8, 0, Math.PI * 2);
+    ctx.fillStyle = C.orange; ctx.shadowColor = 'rgba(253,145,4,.7)'; ctx.shadowBlur = 16; ctx.fill();
+    ctx.restore();
+  }
+}
+
+/** split a line in two where the halves come out most even */
+function balance2(ctx, s, size, weight) {
+  const ws = s.split(/\s+/).filter(Boolean);
+  if (ws.length < 2) return [s];
+  ctx.save(); ctx.font = F(weight, size);
+  let best = null;
+  for (let i = 1; i < ws.length; i++) {
+    const a = ws.slice(0, i).join(' '), b = ws.slice(i).join(' ');
+    const wa = ctx.measureText(a).width, wb = ctx.measureText(b).width;
+    // a headline reads best wider on top («غسالة أوتوماتيك / 9 كيلو»): a short top line costs a little
+    const m = Math.max(wa, wb) * (wa < wb ? 1.15 : 1);
+    if (!best || m < best.m - 0.5) best = { m, lines: [a, b] };
+  }
+  ctx.restore();
+  return best.lines;
+}
+
+/** the big line and the light one under it, right-aligned, kept inside its width */
+function calmHead(ctx, S, W, g, t) {
+  const head = (S.fields.title || S.info.head || '').trim();
+  const sub = (S.fields.badge || S.info.sub || '').trim();
+  if (!head && !sub) return;
+  let size = g.headSize, lines = head ? wrap(ctx, head, g.headMaxW, size, 800) : [];
+  const widest = () => { ctx.save(); ctx.font = F(800, size); const w = Math.max(0, ...lines.map((l) => ctx.measureText(l).width)); ctx.restore(); return w; };
+  while (head && (lines.length > 2 || widest() > g.headMaxW) && size > 40) { size *= 0.93; lines = wrap(ctx, head, g.headMaxW, size, 800); }
+  if (lines.length === 2) lines = balance2(ctx, head, size, 800);
+  let ss = g.subSize;
+  ctx.save(); ctx.font = F(300, ss); let sw = sub ? ctx.measureText(sub).width : 0; ctx.restore();
+  if (sw > g.headMaxW * 1.15) { ss *= (g.headMaxW * 1.15) / sw; sw = g.headMaxW * 1.15; }
+  const lh = size * 1.1, gap = sub && lines.length ? ss * 0.55 : 0;
+  const subY = g.headBottom;
+  const lastY = sub ? subY - ss * 1.0 - gap : g.headBottom;
+  const w = Math.max(widest(), sw);
+  const top = lines.length ? lastY - (lines.length - 1) * lh - size * 0.82 : subY - ss;
+  const box = { x: g.headR - w, y: top, w, h: g.headBottom - top + ss * 0.3 };
+  item(ctx, S, 'headline', box, () => {
+    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 18;
+    lines.forEach((l, i) => {
+      const u = ease.out(seg(t, 1.0 + i * 0.13, 1.65 + i * 0.13));
+      if (u <= 0) return;
+      ctx.save(); ctx.globalAlpha *= u; ctx.translate(0, (1 - u) * 34);
+      text(ctx, l, g.headR, lastY - (lines.length - 1 - i) * lh, { size, weight: 800, align: 'right' });
+      ctx.restore();
+    });
+    if (sub) {
+      const u = ease.out(seg(t, 1.35, 2.0));
+      if (u > 0) { ctx.save(); ctx.globalAlpha *= u; ctx.translate(0, (1 - u) * 20); text(ctx, sub, g.headR, subY, { size: ss, weight: 300, align: 'right' }); ctx.restore(); }
+    }
+    ctx.restore();
+  });
+}
+
+/** the numbers, small and white, bottom-left: the phone, the account under it */
+function calmContact(ctx, S, g, t) {
+  const items = contactItems(S.info);
+  const sz = g.contactSize, ic = sz * 0.95, rowH = sz * 1.45;
+  const fs = (i) => (i === 0 ? sz : sz * 0.86);
+  ctx.save();
+  const w = Math.max(...items.map((it, i) => { ctx.font = F(i === 0 ? 700 : 400, fs(i)); return ctx.measureText(it.text).width + (i === 0 ? ic : ic * 0.8) + 14; }));
+  ctx.restore();
+  const box = { x: g.contactX, y: g.contactY, w, h: rowH * items.length };
+  item(ctx, S, 'contact', box, () => {
+    const u = ease.out(seg(t, 1.5, 2.1));
+    ctx.save(); ctx.globalAlpha *= u; ctx.translate(0, (1 - u) * 16);
+    ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 14;
+    items.forEach((it, i) => {
+      const cy = g.contactY + rowH * i + rowH / 2, isz = i === 0 ? ic : ic * 0.8;
+      icon(ctx, it.icon, g.contactX + isz / 2, cy, isz, C.white);
+      text(ctx, it.text, g.contactX + isz + 14, cy + 2, { size: fs(i), weight: i === 0 ? 700 : 400, align: 'left', dir: it.rtl ? 'rtl' : 'ltr', base: 'middle', color: it.ph ? 'rgba(255,255,255,.55)' : C.white });
+    });
+    ctx.restore();
+  });
+}
+
+function makeCalm(id, name, v) {
+  return {
+    id, name,
+    photoBox(W, H) { return { x: 0, y: 0, w: W, h: H }; },
+    draw(ctx, W, H, t, S, fmt) {
+      const g = calmGeo(W, H, fmt, v);
+      ctx.fillStyle = C.night; ctx.fillRect(0, 0, W, H);
+      // the photo, whole and clean, coming slowly closer
+      const pu = ease.out(seg(t, 0, 0.9));
+      ctx.save(); ctx.globalAlpha = pu;
+      photo(ctx, S, this.photoBox(W, H), 1.065 - 0.065 * ease.out(seg(t, 0, DUR)));
+      ctx.restore();
+      // only a breath of shade where the words sit, the middle stays as it is
+      const tg = ctx.createLinearGradient(0, 0, 0, H * 0.22);
+      tg.addColorStop(0, 'rgba(8,7,24,.42)'); tg.addColorStop(1, 'rgba(8,7,24,0)');
+      ctx.fillStyle = tg; ctx.fillRect(0, 0, W, H * 0.22);
+      const by = H * 0.6;
+      const bg = ctx.createLinearGradient(0, by, 0, H);
+      bg.addColorStop(0, 'rgba(8,7,24,0)'); bg.addColorStop(1, 'rgba(8,7,24,.5)');
+      ctx.fillStyle = bg; ctx.fillRect(0, by, W, H - by);
+
+      calmLines(ctx, W, H, t, g, v);
+
+      // the mark top-left, the name top-right, both small and white
+      const mh = g.markW * logoRatio('mark');
+      const mb = { x: g.m, y: g.markY, w: g.markW, h: mh };
+      item(ctx, S, 'logo', mb, () => {
+        const u = ease.out(seg(t, 0.5, 1.15));
+        ctx.save(); ctx.globalAlpha *= u; ctx.translate(0, (1 - u) * 14);
+        ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 12;
+        drawLogo(ctx, { x: mb.x, y: mb.y, w: mb.w, parts: 'mark', look: 'white' });
+        ctx.restore();
+      });
+      const nh = g.nameW * logoRatio('text');
+      const nb = { x: W - g.m - g.nameW, y: g.nameY, w: g.nameW, h: nh };
+      item(ctx, S, 'name', nb, () => {
+        const u = ease.out(seg(t, 0.62, 1.25));
+        ctx.save(); ctx.globalAlpha *= u; ctx.translate(0, (1 - u) * 14);
+        ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 12;
+        drawLogo(ctx, { x: nb.x, y: nb.y, w: nb.w, parts: 'text', look: 'white' });
+        ctx.restore();
+      });
+
+      calmHead(ctx, S, W, g, t);
+      calmContact(ctx, S, g, t);
+      grain(ctx, W, H, 0.035);
+    },
+  };
+}
+const calm = makeCalm('calm', 'هادئ', 1);
+const calm2 = makeCalm('calm2', 'هادئ 2', 2);
+
+// the calm ones first: Abbas likes them best
+export const DESIGNS = [calm, calm2, house, cinema, card, quick];
 
 // =====================================================================================
 // بطاقة التواصل — the numbers picture, redone: a card with a transparent edge, to lay on

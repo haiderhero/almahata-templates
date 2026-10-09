@@ -12,6 +12,7 @@ const DEFAULT_INFO = {
   phone: '0774 068 1484', insta: 'elect.ronicsstation', place: '',
   tape: 'تقسيط الأجهزة الكهربائية والمنزلية',
   bar: 'outline',                         // the numbers bar in «سريع»: an orange frame, white words (Abbas)
+  head: 'أجهزة منزلك', sub: 'بأقساط شهرية',   // the calm designs' two lines (from their own bio)
 };
 const store = {
   get() { try { return { ...DEFAULT_INFO, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { return { ...DEFAULT_INFO }; } },
@@ -284,7 +285,7 @@ for (const [id, k] of [['fTitle', 'title'], ['fBadge', 'badge']]) {
 // ---------- shop info ----------
 function showNotice() { $('notice').classList.toggle('show', !S.info.phone || !S.info.insta); }
 showNotice();
-const SET = { sPhone: 'phone', sInsta: 'insta', sLine: 'line', sPlace: 'place', sTape: 'tape', sBar: 'bar' };
+const SET = { sPhone: 'phone', sInsta: 'insta', sLine: 'line', sHead: 'head', sSub: 'sub', sPlace: 'place', sTape: 'tape', sBar: 'bar' };
 function openSettings() {
   for (const [id, k] of Object.entries(SET)) $(id).value = S.info[k] ?? DEFAULT_INFO[k] ?? '';
   $('settings').classList.add('show');

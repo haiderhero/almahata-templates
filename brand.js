@@ -12,7 +12,7 @@ export const brand = { ready: false };
 
 export async function loadBrand(base = '.') {
   const faces = [
-    ['Almarai', 'Almarai-Regular.ttf', 400],
+    ['Almarai', 'Almarai-Light.ttf', 300], ['Almarai', 'Almarai-Regular.ttf', 400],
     ['Almarai', 'Almarai-Bold.ttf', 700], ['Almarai', 'Almarai-ExtraBold.ttf', 800],
   ];
   await Promise.all(faces.map(async ([fam, file, weight]) => {
