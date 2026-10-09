@@ -1,7 +1,7 @@
 // The editor: pick a showroom photo, pick a design and a size, move the photo with a finger,
 // then save a picture or a moving video and send it straight to Instagram.
 import { loadBrand, drawLogo } from './brand.js';
-import { DESIGNS, FORMATS, STILL, DUR, render, photoRect, drawContactCard, CARD } from './scene.js';
+import { DESIGNS, FORMATS, STILL, DUR, render, photoRect, drawContactCard, CARD, ITEM_NAMES } from './scene.js';
 import { savePicture, saveVideo } from './export.js';
 
 const $ = (id) => document.getElementById(id);
@@ -11,15 +11,24 @@ const DEFAULT_INFO = {
   line: 'متجر المحطة لتقسيط الأجهزة الكهربائية والمنزلية',
   phone: '0774 068 1484', insta: 'elect.ronicsstation', place: '',
   tape: 'تقسيط الأجهزة الكهربائية والمنزلية',
+  bar: 'outline',                         // the numbers bar in «سريع»: an orange frame, white words (Abbas)
 };
 const store = {
   get() { try { return { ...DEFAULT_INFO, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { return { ...DEFAULT_INFO }; } },
   set(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch { /* private mode: keep for this visit */ } },
 };
 
-const S = { img: null, view: { z: 1, x: 0, y: 0 }, info: store.get(), fields: { title: '', badge: '' } };
+const S = { img: null, view: { z: 1, x: 0, y: 0 }, info: store.get(), fields: { title: '', badge: '' }, layout: {}, editing: false, sel: null, boxes: [] };
 let design = DESIGNS[0];
 let fmt = 'story';
+
+// where Abbas put each element, per design and size: { house: { story: { logo: {dx, dy, s} } } }
+const LKEY = 'mahatta.layout.v1';
+const layouts = (() => { try { return JSON.parse(localStorage.getItem(LKEY) || '{}'); } catch { return {}; } })();
+const saveLayouts = () => { try { localStorage.setItem(LKEY, JSON.stringify(layouts)); } catch { /* private mode */ } };
+function layoutFor(d, f) { const a = (layouts[d.id] ||= {}); return (a[f] ||= {}); }
+S.layout = layoutFor(design, fmt);
+const plain = () => ({ ...S, editing: false, boxes: null });   // what gets saved: no guides
 let playing = true, holdUntil = 0, t0 = performance.now();
 
 await loadBrand('.');
@@ -43,7 +52,7 @@ new ResizeObserver(sizeView).observe(view);
 
 function frame(now) {
   let t;
-  if (!playing || now < holdUntil) t = STILL;
+  if (!playing || now < holdUntil || S.editing) t = STILL;
   else t = ((now - t0) / 1000) % (DUR + 0.6);
   render(vctx, design, fmt, Math.min(t, DUR), S);
   requestAnimationFrame(frame);
@@ -64,7 +73,7 @@ const thumbs = DESIGNS.map((d) => {
   b.type = 'button';
   const c = document.createElement('canvas');
   b.append(c, document.createTextNode(d.name));
-  b.addEventListener('click', () => { design = d; markDesign(); restart(); });
+  b.addEventListener('click', () => { design = d; S.layout = layoutFor(design, fmt); S.sel = null; panel(); markDesign(); restart(); });
   $('designs').append(b);
   return { d, b, c };
 });
@@ -76,7 +85,7 @@ function drawThumbs() {
     const [W, H] = FORMATS[fmt];
     for (const { d, c } of thumbs) {
       c.width = 216; c.height = Math.round(216 * H / W);
-      render(c.getContext('2d'), d, fmt, STILL, S);
+      render(c.getContext('2d'), d, fmt, STILL, { ...plain(), layout: layoutFor(d, fmt) });
     }
   }, 60);
 }
@@ -91,6 +100,7 @@ $('fmt').addEventListener('click', (e) => {
   [...$('fmt').children].forEach((x) => x.classList.toggle('on', x === b));
   $('frame').classList.toggle('post', fmt === 'post');
   $('designs').classList.toggle('post', fmt === 'post');
+  S.layout = layoutFor(design, fmt); S.sel = null; panel();
   sizeView(); clampView(); drawThumbs(); restart();
 });
 
@@ -127,7 +137,7 @@ async function loadPhoto(file) {
 const demo = new URLSearchParams(location.search).get('demo');
 if (demo) {
   const im = new Image(); im.src = `demo/showroom-${demo}.jpg`;
-  im.decode().then(() => { S.img = im; $('pickLabel').textContent = 'غيّر الصورة'; drawThumbs(); }).catch(() => {});
+  im.decode().then(() => { S.img = im; $('pickLabel').textContent = 'غيّر الصورة'; setMode(mode); drawThumbs(); }).catch(() => {});
 }
 
 // ---------- move / zoom the photo ----------
@@ -148,7 +158,73 @@ function clampView() {
   S.view.x = Math.max(-r.mx / box.w, Math.min(r.mx / box.w, S.view.x));
   S.view.y = Math.max(-r.my / box.h, Math.min(r.my / box.h, S.view.y));
 }
+// ---------- arrange: move and size every element ----------
+let mode = 'photo', drag = null, pinch = null;
+function toDesign(e) {
+  const r = view.getBoundingClientRect(); const [W, H] = FORMATS[fmt];
+  return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height };
+}
+function panel() {
+  const o = S.sel ? (S.layout[S.sel] || {}) : null;
+  $('selName').textContent = S.sel ? `المختار: ${ITEM_NAMES[S.sel] || S.sel}` : 'اضغط على أي شي بالتصميم حتى تختاره';
+  $('size').disabled = !S.sel; $('resetOne').disabled = !S.sel;
+  $('size').value = Math.round((o?.s ?? 1) * 100);
+  $('sizeOut').textContent = `${$('size').value}%`;
+}
+function setMode(m) {
+  mode = m; S.editing = m === 'arrange'; if (!S.editing) S.sel = null;
+  [...$('modes').children].forEach((b) => b.classList.toggle('on', b.dataset.m === m));
+  $('arrange').hidden = !S.editing;
+  $('hint').textContent = S.editing
+    ? 'اضغط على أي شي واسحبه لمكانه، وكبّره أو صغّره بإصبعين أو بالشريط'
+    : (S.img ? 'حرّك الصورة بإصبعك، وقرّب أو بعّد بإصبعين' : 'اختار صورة من المعرض حتى تطلع داخل التصميم');
+  panel();
+}
+$('modes').addEventListener('click', (e) => { const b = e.target.closest('button[data-m]'); if (b) setMode(b.dataset.m); });
+const keep = (id) => (S.layout[id] ||= {});
+function commit() { saveLayouts(); drawThumbs(); }
+$('size').addEventListener('input', () => {
+  if (!S.sel) return;
+  keep(S.sel).s = Number($('size').value) / 100; $('sizeOut').textContent = `${$('size').value}%`;
+});
+$('size').addEventListener('change', commit);
+$('resetOne').addEventListener('click', () => { if (S.sel) { delete S.layout[S.sel]; panel(); commit(); } });
+$('resetAll').addEventListener('click', () => { for (const k of Object.keys(S.layout)) delete S.layout[k]; S.sel = null; panel(); commit(); });
+function arrangeDown(e) {
+  const p = toDesign(e);
+  if (pts.size === 1) {
+    const hit = [...(S.boxes || [])].reverse().find((b) => p.x >= b.x - 26 && p.x <= b.x + b.w + 26 && p.y >= b.y - 26 && p.y <= b.y + b.h + 26);
+    S.sel = hit ? hit.id : null; panel();
+    if (hit) {
+      const o = keep(hit.id);
+      drag = { p0: p, dx: o.dx || 0, dy: o.dy || 0, cx: hit.x + hit.w / 2 - (o.dx || 0), cy: hit.y + hit.h / 2 - (o.dy || 0) };
+    } else drag = null;
+  } else if (pts.size === 2 && S.sel) {
+    const [a, b] = [...pts.values()];
+    pinch = { d0: Math.hypot(a.x - b.x, a.y - b.y), s0: keep(S.sel).s ?? 1 };
+  }
+}
+function arrangeMove(e) {
+  if (!S.sel) return;
+  const [W, H] = FORMATS[fmt];
+  if (pinch && pts.size === 2) {
+    const [a, b] = [...pts.values()];
+    keep(S.sel).s = Math.min(2.6, Math.max(0.35, pinch.s0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0));
+    panel();
+  } else if (drag && pts.size === 1) {
+    const p = toDesign(e), o = keep(S.sel);
+    // the element's middle stays on the picture, so it can never be lost off the edge
+    o.dx = Math.min(W - 30 - drag.cx, Math.max(30 - drag.cx, drag.dx + p.x - drag.p0.x));
+    o.dy = Math.min(H - 30 - drag.cy, Math.max(30 - drag.cy, drag.dy + p.y - drag.p0.y));
+  }
+}
+
 view.addEventListener('pointerdown', (e) => {
+  if (mode === 'arrange') {
+    view.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    arrangeDown(e); return;
+  }
   if (!S.img) { $('file').click(); return; }
   view.setPointerCapture(e.pointerId);
   pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -160,6 +236,7 @@ view.addEventListener('pointerdown', (e) => {
 view.addEventListener('pointermove', (e) => {
   if (!pts.has(e.pointerId)) return;
   pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (mode === 'arrange') { arrangeMove(e); return; }
   const g = gesture();
   if (last && pts.size === (last.d ? 2 : 1)) {
     const [W] = FORMATS[fmt];
@@ -174,12 +251,25 @@ view.addEventListener('pointermove', (e) => {
 });
 const up = (e) => {
   pts.delete(e.pointerId);
+  if (mode === 'arrange') {
+    if (pts.size < 2) pinch = null;
+    if (!pts.size) { drag = null; commit(); }
+    else drag = null;                       // two fingers down to one: stop, no jump
+    return;
+  }
   last = pts.size ? gesture() : null;
   if (!pts.size) { holdUntil = performance.now() + 900; drawThumbs(); setTimeout(restart, 900); }
 };
 view.addEventListener('pointerup', up);
 view.addEventListener('pointercancel', up);
 view.addEventListener('wheel', (e) => {
+  if (mode === 'arrange') {
+    if (!S.sel) return;
+    e.preventDefault();
+    const o = keep(S.sel); o.s = Math.min(2.6, Math.max(0.35, (o.s ?? 1) * Math.exp(-e.deltaY * 0.0015)));
+    panel(); clearTimeout(view._w); view._w = setTimeout(commit, 400);
+    return;
+  }
   if (!S.img) return;
   e.preventDefault();
   S.view.z *= Math.exp(-e.deltaY * 0.0015); clampView();
@@ -194,9 +284,9 @@ for (const [id, k] of [['fTitle', 'title'], ['fBadge', 'badge']]) {
 // ---------- shop info ----------
 function showNotice() { $('notice').classList.toggle('show', !S.info.phone || !S.info.insta); }
 showNotice();
-const SET = { sPhone: 'phone', sInsta: 'insta', sLine: 'line', sPlace: 'place', sTape: 'tape' };
+const SET = { sPhone: 'phone', sInsta: 'insta', sLine: 'line', sPlace: 'place', sTape: 'tape', sBar: 'bar' };
 function openSettings() {
-  for (const [id, k] of Object.entries(SET)) $(id).value = S.info[k] || '';
+  for (const [id, k] of Object.entries(SET)) $(id).value = S.info[k] ?? DEFAULT_INFO[k] ?? '';
   $('settings').classList.add('show');
 }
 $('openSettings').addEventListener('click', openSettings);
@@ -249,14 +339,14 @@ function needPhoto() {
 $('savePng').addEventListener('click', async () => {
   if (needPhoto()) return;
   openOut('دا تتسوى الصورة…');
-  showOut(await savePicture(design, fmt, S));
+  showOut(await savePicture(design, fmt, plain()));
 });
 $('saveMp4').addEventListener('click', async () => {
   if (needPhoto()) return;
   openOut('دا يتسوى الفيديو… خلّي الصفحة مفتوحة');
   const wasPlaying = playing; playing = false;
   try {
-    const f = await saveVideo(design, fmt, S, (p) => { $('barFill').style.width = `${Math.round(p * 100)}%`; $('busyText').textContent = `دا يتسوى الفيديو… ${Math.round(p * 100)}%`; });
+    const f = await saveVideo(design, fmt, plain(), (p) => { $('barFill').style.width = `${Math.round(p * 100)}%`; $('busyText').textContent = `دا يتسوى الفيديو… ${Math.round(p * 100)}%`; });
     showOut(f);
   } catch (err) {
     console.error(err);
@@ -290,6 +380,7 @@ document.querySelectorAll('#cardSheet .pick').forEach((b) => b.addEventListener(
   openOut('');
   showOut(new File([blob], `المحطة-بطاقة-التواصل-${b.dataset.look === 'sun' ? 'برتقالي' : 'نيلي'}.png`, { type: 'image/png' }));
 }));
-window.__app = { S, get design() { return design; }, get fmt() { return fmt; } };
+setMode('photo');
+window.__app = { S, layouts, setMode, get design() { return design; }, get fmt() { return fmt; } };
 // offline after the first visit (only on the real https address, never while developing)
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

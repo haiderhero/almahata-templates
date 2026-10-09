@@ -26,7 +26,22 @@ export async function loadBrand(base = '.') {
   brand.text = m.text;
   brand.box = m.box;            // the logo's extent in the 1280 source
   brand.ready = true;
+  // where each part's weight sits, as a fraction of its width right of the box centre
+  brand.nudge = {};
+  for (const parts of ['all', 'mark', 'icons', 'text']) {
+    const b = logoBox(parts), w = 320, h = Math.round((w * (b[3] - b[1])) / (b[2] - b[0]));
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const x = c.getContext('2d');
+    drawLogo(x, { x: 0, y: 0, w, parts });
+    const d = x.getImageData(0, 0, w, h).data;
+    let mass = 0, mx = 0;
+    for (let i = 3, px = 0; i < d.length; i += 4, px++) { mass += d[i]; mx += d[i] * (px % w); }
+    brand.nudge[parts] = mass ? (w / 2 - mx / mass) / w : 0;
+  }
 }
+
+/** the x that centres a logo of width w in a space of width W by its weight, not its box */
+export function opticalX(W, w, parts = 'all') { return (W - w) / 2 + w * 0.9 * ((brand.nudge && brand.nudge[parts]) || 0); }
 
 // ---------- easing ----------
 export const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));

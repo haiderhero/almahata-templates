@@ -1,6 +1,6 @@
 // Works offline after the first visit: always try the network first (so updates land
 // straight away), fall back to the last copy kept here.
-const CACHE = 'mahatta-v1';
+const CACHE = 'mahatta-v2';
 const CORE = ['./', 'index.html', 'app.js', 'brand.js', 'scene.js', 'smoke.js', 'export.js', 'lib/mp4-muxer.min.js',
   'assets/mark.json', 'assets/icon-180.png', 'assets/icon-192.png', 'manifest.webmanifest',
   'fonts/Almarai-Regular.ttf', 'fonts/Almarai-Bold.ttf', 'fonts/Almarai-ExtraBold.ttf'];

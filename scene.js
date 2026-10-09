@@ -1,7 +1,7 @@
 // The designs. Each one draws a whole frame (photo, brand, contact, motion) for time t,
 // in story (1080×1920) or post (1080×1350). The preview, the saved picture and the saved
 // video all come from this one function, so what Abbas sees is what he gets.
-import { C, brand, drawLogo, logoRatio, ease, seg, clamp } from './brand.js';
+import { C, brand, drawLogo, logoRatio, opticalX, ease, seg, clamp } from './brand.js';
 import { Smoke } from './smoke.js';
 
 export const DUR = 7;            // video length, seconds
@@ -124,11 +124,11 @@ function contactItems(info) {
   return it;
 }
 
-/** a centred row of pills (wraps to two rows if needed); returns the height used */
-function pills(ctx, cx, y, maxW, info, { h = 84, size = 36, bg = 'rgba(13,11,42,.72)', fg = C.white, dot = C.orange, dotFg = C.night, stroke = 'rgba(255,255,255,.14)', gap = 18, a = 1 } = {}) {
+/** the pills' size before drawing them (so they can be placed and moved as one block) */
+function pillsLayout(ctx, maxW, info, { h = 84, size = 36, gap = 18 } = {}) {
   const items = contactItems(info);
   ctx.save(); ctx.font = F(700, size);
-  const ws = items.map((i) => ctx.measureText(i.text).width + h + 34);
+  const ws = items.map((i) => Math.min(ctx.measureText(i.text).width + h + 34, maxW));
   ctx.restore();
   const rows = [];
   let row = [], rw = 0;
@@ -137,16 +137,23 @@ function pills(ctx, cx, y, maxW, info, { h = 84, size = 36, bg = 'rgba(13,11,42,
     rw += (row.length ? gap : 0) + ws[i]; row.push(i);
   });
   rows.push([row, rw]);
+  return { items, ws, rows, w: Math.max(...rows.map((r) => r[1])), h: rows.length * h + (rows.length - 1) * 14 };
+}
+
+/** a centred row of pills (wraps to two rows if needed) */
+function pills(ctx, cx, y, maxW, info, { h = 84, size = 36, bg = 'rgba(13,11,42,.74)', fg = C.white, dot = C.orange, dotFg = C.night, stroke = 'rgba(255,255,255,.14)', gap = 18, a = 1 } = {}) {
+  const { items, ws, rows } = pillsLayout(ctx, maxW, info, { h, size, gap });
   ctx.save(); ctx.globalAlpha *= a;
   rows.forEach(([r, total], ri) => {
     // right to left: the first item sits on the right
     let x = cx + total / 2;
     const yy = y + ri * (h + 14);
     for (const i of r) {
-      const w = Math.min(ws[i], maxW), it = items[i];
+      const w = ws[i], it = items[i];
       x -= w;
-      rr(ctx, x, yy, w, h, h / 2); ctx.fillStyle = bg; ctx.fill();
-      if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
+      ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.28)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 4;
+      rr(ctx, x, yy, w, h, h / 2); ctx.fillStyle = bg; ctx.fill(); ctx.restore();
+      if (stroke) { rr(ctx, x, yy, w, h, h / 2); ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
       ctx.beginPath(); ctx.arc(x + w - h / 2, yy + h / 2, h / 2 - 9, 0, Math.PI * 2); ctx.fillStyle = dot; ctx.fill();
       icon(ctx, it.icon, x + w - h / 2, yy + h / 2, h * 0.42, dotFg);
       text(ctx, it.text, x + w - h - 12, yy + h / 2 + 2, { size, weight: 700, color: it.ph ? 'rgba(255,255,255,.55)' : fg, align: 'right', dir: it.rtl ? 'rtl' : 'ltr', base: 'middle', maxW: w - h - 30 });
@@ -154,7 +161,78 @@ function pills(ctx, cx, y, maxW, info, { h = 84, size = 36, bg = 'rgba(13,11,42,
     }
   });
   ctx.restore();
-  return rows.length * h + (rows.length - 1) * 14;
+}
+
+// ---------- the elements Abbas can move and size ----------
+export const ITEM_NAMES = { logo: 'الشعار', line: 'سطر المحل', contact: 'الرقم والحساب', title: 'اسم المنتج', badge: 'السعر', frame: 'الصورة' };
+/**
+ * Draw one movable element: `box` is where it sits by default (design pixels); Abbas's offset and
+ * size come from S.layout[id]. The final box is kept (S.boxes) so the editor can pick it.
+ */
+function item(ctx, S, id, box, draw) {
+  const o = (S.layout && S.layout[id]) || {};
+  const s = o.s ?? 1, dx = o.dx || 0, dy = o.dy || 0;
+  const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+  ctx.save();
+  ctx.translate(cx + dx, cy + dy); ctx.scale(s, s); ctx.translate(-cx, -cy);
+  draw();
+  ctx.restore();
+  if (S.boxes) S.boxes.push({ id, x: cx + dx - (box.w * s) / 2, y: cy + dy - (box.h * s) / 2, w: box.w * s, h: box.h * s });
+}
+/** a logo of width w, centred by its weight (the eye), not its box */
+function logoBoxAt(W, y, w, parts = 'all') { return { x: opticalX(W, w, parts), y, w, h: w * logoRatio(parts) }; }
+
+/** a soft dark glow behind something light that sits on a photo */
+function scrim(ctx, b, a = 0.5) {
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2, r = Math.max(b.w, b.h) * 0.78;
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(1, b.h / Math.max(b.w, b.h) * 1.15);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+  g.addColorStop(0, `rgba(13,11,42,${a})`); g.addColorStop(0.55, `rgba(13,11,42,${a * 0.55})`); g.addColorStop(1, 'rgba(13,11,42,0)');
+  ctx.fillStyle = g; ctx.fillRect(-r, -r, 2 * r, 2 * r); ctx.restore();
+}
+
+/** the shop line, alone (it can be moved apart from the numbers) */
+function shopLine(ctx, S, id, W, baseY, size, t, t0, { color = C.white, shadow = true } = {}) {
+  if (!S.info.line) return;
+  ctx.save(); ctx.font = F(800, size);
+  let w = ctx.measureText(S.info.line).width; const maxW = W - 140;
+  let sz = size; if (w > maxW) { sz = size * maxW / w; w = maxW; }
+  ctx.restore();
+  const box = { x: (W - w) / 2, y: baseY - sz * 0.95, w, h: sz * 1.25 };
+  item(ctx, S, id, box, () => {
+    const u = ease.out(seg(t, t0, t0 + 0.6));
+    ctx.save(); ctx.globalAlpha *= u; ctx.translate(0, (1 - u) * 24);
+    if (shadow) { ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 16; }
+    text(ctx, S.info.line, W / 2, baseY, { size: sz, weight: 800, color });
+    ctx.restore();
+  });
+}
+
+/** the numbers as a block of pills, placed by its top edge */
+function contactBlock(ctx, S, W, y, t, t0, opts) {
+  const lay = pillsLayout(ctx, W - 120, S.info, opts);
+  const box = { x: (W - lay.w) / 2, y, w: lay.w, h: lay.h };
+  item(ctx, S, 'contact', box, () => {
+    const u = ease.out(seg(t, t0, t0 + 0.55));
+    ctx.save(); ctx.translate(0, (1 - u) * 30);
+    pills(ctx, W / 2, y, W - 120, S.info, { ...opts, a: u });
+    ctx.restore();
+  });
+}
+
+/** the product line as a movable element; y is the baseline of its last line */
+function titleItem(ctx, S, W, y, maxW, t, t0, size) {
+  const s = S.fields.title; if (!s) return;
+  const lines = wrap(ctx, s, maxW, size, 800).slice(0, 2);
+  ctx.save(); ctx.font = F(800, size); const w = Math.min(maxW, Math.max(...lines.map((l) => ctx.measureText(l).width))); ctx.restore();
+  const hgt = lines.length * size * 1.18;
+  const box = { x: (W - w) / 2, y: y - hgt + size * 0.25, w, h: hgt };
+  item(ctx, S, 'title', box, () => title(ctx, s, W / 2, y, maxW, t, t0, size));
+}
+
+function badgeItem(ctx, S, cx, cy, r, t0, t, opts) {
+  if (!S.fields.badge) return;
+  item(ctx, S, 'badge', { x: cx - r * 1.08, y: cy - r * 1.08, w: r * 2.16, h: r * 2.16 }, () => badge(ctx, S.fields.badge, cx, cy, r, t0, t, opts));
 }
 
 // the badge: a price / installment line in a circle, if Abbas wrote one
@@ -197,7 +275,10 @@ function logoWithSheen(ctx, W, H, opts, t, at = [2.4, 5.2]) {
     g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,.85)'); g.addColorStop(1, 'rgba(255,255,255,0)');
     lc.save(); lc.globalCompositeOperation = 'source-atop'; lc.fillStyle = g; lc.fillRect(opts.x - 200, opts.y - 50, opts.w + 400, h + 100); lc.restore();
   }
-  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(L, 0, 0); ctx.restore();
+  const k = ctx.getTransform().a;                  // design px -> canvas px (thumbnails are small)
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.shadowColor = 'rgba(7,6,26,.62)'; ctx.shadowBlur = 26 * k; ctx.shadowOffsetY = 4 * k;
+  ctx.drawImage(L, 0, 0); ctx.restore();
 }
 const layers = new WeakMap();
 function layer(c, i) {
@@ -229,8 +310,8 @@ function title(ctx, s, cx, y, maxW, t, t0, size = 64) {
 // 1. البيت — the photo lives inside the logo's house; the house draws itself around it
 // =====================================================================================
 function houseGeo(W, H, fmt) {
-  if (fmt === 'story') return { L: 120, R: 960, peak: 370, bottom: 1290 };
-  return { L: 150, R: 930, peak: 92, bottom: 905 };
+  if (fmt === 'story') return { L: 90, R: 990, peak: 330, bottom: 1340 };
+  return { L: 130, R: 950, peak: 50, bottom: 970 };
 }
 function housePath(g, r = 30) {
   const cx = (g.L + g.R) / 2, eave = g.peak + (g.R - g.L) / 2 * 0.84;
@@ -262,67 +343,58 @@ const house = {
   id: 'house', name: 'البيت',
   photoBox(W, H, fmt) { const g = houseGeo(W, H, fmt); return { x: g.L, y: g.peak, w: g.R - g.L, h: g.bottom - g.peak }; },
   draw(ctx, W, H, t, S, fmt) {
+    const story = fmt === 'story';
     const g = houseGeo(W, H, fmt); const hp = housePath(g);
-    // ground: night indigo, an orange glow behind the house, smoke all round
+    // ground: night indigo, smoke at the ends
     const bg = ctx.createLinearGradient(0, 0, 0, H);
     bg.addColorStop(0, '#1A1650'); bg.addColorStop(0.55, C.night); bg.addColorStop(1, '#07061A');
     ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-    const gl = ctx.createRadialGradient(W / 2, (g.peak + g.bottom) / 2, 50, W / 2, (g.peak + g.bottom) / 2, W * 0.85);
-    gl.addColorStop(0, `rgba(253,145,4,${0.30 + 0.05 * Math.sin(t * 1.6)})`); gl.addColorStop(1, 'rgba(253,145,4,0)');
-    ctx.fillStyle = gl; ctx.fillRect(0, 0, W, H);
-    laySmoke(ctx, W, H, t, { a: C.orange, b: C.indigo2, amt: 0.9, mode: 'ends', seed: 1.7 }, 0.85);
+    laySmoke(ctx, W, H, t, { a: C.orange, b: C.indigo2, amt: 0.9, mode: 'ends', seed: 1.7 }, 0.8);
 
-    // the photo, inside the house
-    const pu = ease.out(seg(t, 0.25, 1.3));
-    ctx.save(); ctx.clip(hp.p);
-    ctx.globalAlpha = pu;
-    photo(ctx, S, this.photoBox(W, H, fmt), 1.1 - 0.08 * pu + 0.025 * seg(t, 1.3, DUR));
-    // a little night at the foot of the photo, for the title
-    if (S.fields.title) {
-      const sh = ctx.createLinearGradient(0, g.bottom - 360, 0, g.bottom);
-      sh.addColorStop(0, 'rgba(13,11,42,0)'); sh.addColorStop(1, 'rgba(13,11,42,.88)');
-      ctx.fillStyle = sh; ctx.fillRect(g.L, g.bottom - 360, g.R - g.L, 360);
-    }
-    ctx.restore();
+    // the house: its glow, the photo inside, the orange line drawn on, the logo's icons on the roof
+    item(ctx, S, 'frame', this.photoBox(W, H, fmt), () => {
+      const gl = ctx.createRadialGradient(W / 2, (g.peak + g.bottom) / 2, 50, W / 2, (g.peak + g.bottom) / 2, W * 0.8);
+      gl.addColorStop(0, `rgba(253,145,4,${0.26 + 0.05 * Math.sin(t * 1.6)})`); gl.addColorStop(1, 'rgba(253,145,4,0)');
+      ctx.fillStyle = gl; ctx.fillRect(-W, -H, 3 * W, 3 * H);
+      const pu = ease.out(seg(t, 0.25, 1.3));
+      ctx.save(); ctx.clip(hp.p);
+      ctx.globalAlpha = pu;
+      photo(ctx, S, this.photoBox(W, H, fmt), 1.08 - 0.06 * pu + 0.02 * seg(t, 1.3, DUR));
+      if (S.fields.title) {
+        const sh = ctx.createLinearGradient(0, g.bottom - 300, 0, g.bottom);
+        sh.addColorStop(0, 'rgba(13,11,42,0)'); sh.addColorStop(1, 'rgba(13,11,42,.8)');
+        ctx.fillStyle = sh; ctx.fillRect(g.L, g.bottom - 300, g.R - g.L, 300);
+      }
+      ctx.restore();
+      const d = ease.inOut(seg(t, 0, 1.15));
+      ctx.save();
+      ctx.lineWidth = story ? 24 : 20; ctx.strokeStyle = C.orange; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.shadowColor = 'rgba(253,145,4,.5)'; ctx.shadowBlur = 26;
+      if (d >= 1) ctx.stroke(hp.p);
+      else if (d > 0) { ctx.setLineDash([hp.halfLen * d, hp.halfLen * 2]); for (const q of hp.halves) ctx.stroke(q); }
+      ctx.restore();
+      const iw = story ? 290 : 220;
+      const ix = g.R - iw * 0.86, iy = Math.max(story ? 230 : 8, g.peak - iw * logoRatio('icons') * 0.42);
+      ctx.save(); ctx.shadowColor = 'rgba(7,6,26,.7)'; ctx.shadowBlur = 36;
+      drawLogo(ctx, { x: ix, y: iy, w: iw, t: t - 0.55, parts: 'icons' });
+      ctx.restore();
+    });
 
-    // the orange house line, drawn on
-    const d = ease.inOut(seg(t, 0, 1.15));
-    ctx.save();
-    ctx.lineWidth = fmt === 'story' ? 26 : 22; ctx.strokeStyle = C.orange; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    ctx.shadowColor = 'rgba(253,145,4,.55)'; ctx.shadowBlur = 30;
-    if (d >= 1) ctx.stroke(hp.p);
-    else if (d > 0) {
-      ctx.setLineDash([hp.halfLen * d, hp.halfLen * 2]);
-      for (const q of hp.halves) ctx.stroke(q);
-    }
-    ctx.restore();
-
-    // the logo's icons ride the right side of the roof, as in the logo
-    const iw = fmt === 'story' ? 330 : 250;
-    const ix = g.R - iw * 0.86, iy = Math.max(fmt === 'story' ? 230 : 18, g.peak - iw * logoRatio('icons') * 0.42);
-    ctx.save(); ctx.shadowColor = 'rgba(7,6,26,.7)'; ctx.shadowBlur = 40;
-    drawLogo(ctx, { x: ix, y: iy, w: iw, t: t - 0.55, parts: 'icons' });
-    ctx.restore();
-
-    title(ctx, S.fields.title, W / 2, g.bottom - (fmt === 'story' ? 64 : 52), g.R - g.L - 120, t, 1.3, fmt === 'story' ? 64 : 56);
+    titleItem(ctx, S, W, g.bottom - (story ? 60 : 50), g.R - g.L - 120, t, 1.3, story ? 60 : 52);
     const eave = g.peak + (g.R - g.L) / 2 * 0.84;
-    badge(ctx, S.fields.badge, g.L + 30, eave + (fmt === 'story' ? 70 : 40), fmt === 'story' ? 128 : 104, 1.45, t, { rot: -0.16 });
+    badgeItem(ctx, S, g.L + 40, eave + (story ? 70 : 40), story ? 120 : 100, 1.45, t, { rot: -0.16 });
 
-    // the name under the house, and how to reach the shop
-    const tw = fmt === 'story' ? 560 : 470;
-    const ty = g.bottom + (fmt === 'story' ? 52 : 34);
-    drawLogo(ctx, { x: (W - tw) / 2, y: ty, w: tw, t: t - 0.3, parts: 'text' });
-    const py = ty + tw * logoRatio('text') + (fmt === 'story' ? 34 : 24);
-    const pa = ease.out(seg(t, 1.25, 1.8));
-    ctx.save(); ctx.translate(0, (1 - pa) * 30);
-    pills(ctx, W / 2, py, W - 140, S.info, { a: pa, h: fmt === 'story' ? 84 : 76, size: fmt === 'story' ? 36 : 32 });
-    ctx.restore();
-    grain(ctx, W, H, 0.06);
+    // the name under the house, and the numbers low on the screen
+    const tw = story ? 420 : 330;
+    const lb = logoBoxAt(W, g.bottom + (story ? 34 : 24), tw, 'text');
+    item(ctx, S, 'logo', lb, () => drawLogo(ctx, { x: lb.x, y: lb.y, w: tw, t: t - 0.3, parts: 'text' }));
+    contactBlock(ctx, S, W, story ? 1582 : 1238, t, 1.25, { h: story ? 80 : 72, size: story ? 34 : 30 });
+    grain(ctx, W, H, 0.05);
   },
 };
 
 // =====================================================================================
-// 2. سينما — the photo full screen, the logo at the top, smoke rising at the foot
+// 2. سينما — the photo full screen and clear; a small logo, the shop and its numbers low
 // =====================================================================================
 const cinema = {
   id: 'cinema', name: 'سينما',
@@ -332,50 +404,40 @@ const cinema = {
     ctx.fillStyle = C.night; ctx.fillRect(0, 0, W, H);
     const pu = ease.expo(seg(t, 0, 1.6));
     ctx.save(); ctx.globalAlpha = clamp(pu * 1.5);
-    photo(ctx, S, this.photoBox(W, H), 1.14 - 0.12 * pu + 0.035 * seg(t, 1.6, DUR));
+    photo(ctx, S, this.photoBox(W, H), 1.12 - 0.1 * pu + 0.03 * seg(t, 1.6, DUR));
     ctx.restore();
-    // grade: indigo in the shadows, a vignette
-    ctx.save(); ctx.globalCompositeOperation = 'soft-light'; ctx.fillStyle = 'rgba(38,34,122,.55)'; ctx.fillRect(0, 0, W, H); ctx.restore();
-    const vg = ctx.createRadialGradient(W / 2, H * 0.48, H * 0.25, W / 2, H * 0.5, H * 0.75);
-    vg.addColorStop(0, 'rgba(7,6,26,0)'); vg.addColorStop(1, 'rgba(7,6,26,.55)');
+    // keep the product clear (Abbas): only a light vignette and a low shade under the words
+    const vg = ctx.createRadialGradient(W / 2, H * 0.48, H * 0.3, W / 2, H * 0.5, H * 0.78);
+    vg.addColorStop(0, 'rgba(7,6,26,0)'); vg.addColorStop(1, 'rgba(7,6,26,.3)');
     ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
-    // top and foot in night indigo
-    const topH = story ? 860 : 520;
-    const tg = ctx.createLinearGradient(0, 0, 0, topH);
-    tg.addColorStop(0, 'rgba(13,11,42,.95)'); tg.addColorStop(0.62, 'rgba(13,11,42,.78)'); tg.addColorStop(1, 'rgba(13,11,42,0)');
-    ctx.fillStyle = tg; ctx.fillRect(0, 0, W, topH);
-    const fy = story ? 1040 : 740;
+    const fy = H * 0.74;
     const fg = ctx.createLinearGradient(0, fy, 0, H);
-    fg.addColorStop(0, 'rgba(13,11,42,0)'); fg.addColorStop(0.45, 'rgba(13,11,42,.78)'); fg.addColorStop(1, 'rgba(10,8,32,.97)');
+    fg.addColorStop(0, 'rgba(13,11,42,0)'); fg.addColorStop(1, 'rgba(10,8,32,.62)');
     ctx.fillStyle = fg; ctx.fillRect(0, fy, W, H - fy);
-    laySmoke(ctx, W, H, t, { a: C.orange, b: C.indigo2, amt: 1.15, mode: 'bottom', seed: 4.2, rise: 1.2 }, 0.95);
+    laySmoke(ctx, W, H, t, { a: C.orange, b: C.indigo2, amt: 0.8, mode: 'bottom', seed: 4.2, rise: 1.2 }, 0.55);
 
     // viewfinder corners
     const cu = ease.out(seg(t, 0.15, 0.85));
-    const m = story ? 56 : 44, L = (story ? 96 : 80) * cu;
-    ctx.save(); ctx.strokeStyle = C.orange; ctx.lineWidth = 7; ctx.lineCap = 'round'; ctx.globalAlpha = cu;
+    const m = story ? 56 : 44, L = (story ? 84 : 70) * cu;
+    ctx.save(); ctx.strokeStyle = C.orange; ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.globalAlpha = cu;
     for (const [x, y, sx, sy] of [[m, m, 1, 1], [W - m, m, -1, 1], [m, H - m, 1, -1], [W - m, H - m, -1, -1]]) {
       ctx.beginPath(); ctx.moveTo(x, y + sy * L); ctx.lineTo(x, y); ctx.lineTo(x + sx * L, y); ctx.stroke();
     }
     ctx.restore();
 
-    // the logo
-    const lw = story ? 520 : 400;
-    logoWithSheen(ctx, W, H, { x: (W - lw) / 2, y: story ? 255 : 66, w: lw, t: t - 0.2, glow: 0 }, t);
+    // the logo, small, with a soft shade of its own so it reads on any photo
+    const lb = logoBoxAt(W, story ? 262 : 56, story ? 360 : 280);
+    item(ctx, S, 'logo', lb, () => {
+      scrim(ctx, { x: lb.x - 40, y: lb.y - 30, w: lb.w + 80, h: lb.h + 60 }, 0.6 * ease.out(seg(t, 0.1, 0.8)));
+      logoWithSheen(ctx, W, H, { x: lb.x, y: lb.y, w: lb.w, t: t - 0.2 }, t);
+    });
 
-    // foot, from the bottom up: how to reach the shop, the shop line, the product
-    const ca = ease.out(seg(t, 1.05, 1.7));
-    const py = story ? 1478 : 1176;
-    ctx.save(); ctx.translate(0, (1 - ca) * 40); ctx.globalAlpha = ca;
-    pills(ctx, W / 2, py, W - 120, S.info, { h: story ? 84 : 74, size: story ? 36 : 31 });
-    if (S.info.line) {
-      ctx.fillStyle = C.orange; rr(ctx, W / 2 - 60, py - 32, 120, 8, 4); ctx.fill();
-      text(ctx, S.info.line, W / 2, py - 56, { size: story ? 40 : 34, weight: 800, maxW: W - 150 });
-    }
-    ctx.restore();
-    title(ctx, S.fields.title, W / 2, py - (story ? 150 : 130), W - 160, t, 1.0, story ? 66 : 54);
-    badge(ctx, S.fields.badge, W - (story ? 200 : 170), story ? 1020 : 700, story ? 130 : 108, 1.4, t, { rot: 0.12 });
-    grain(ctx, W, H, 0.07);
+    // low on the screen: the product (if written), the shop line, the numbers
+    titleItem(ctx, S, W, story ? 1478 : 1150, W - 160, t, 1.0, story ? 60 : 50);
+    shopLine(ctx, S, 'line', W, story ? 1556 : 1214, story ? 34 : 30, t, 1.0);
+    contactBlock(ctx, S, W, story ? 1582 : 1238, t, 1.1, { h: story ? 80 : 72, size: story ? 34 : 30 });
+    badgeItem(ctx, S, W - (story ? 190 : 160), story ? 1240 : 880, story ? 120 : 100, 1.4, t, { rot: 0.12 });
+    grain(ctx, W, H, 0.06);
   },
 };
 
@@ -387,8 +449,8 @@ const card = {
   id: 'card', name: 'بطاقة',
   geo(W, H, fmt) {
     return fmt === 'story'
-      ? { cx: 540, top: 604, pw: 660, ph: 660, b: 28, cap: 136, rot: -0.06, logoW: 470, logoY: 236, tapeY: 1474, pillY: 1566, sun: 300, mark: 300 }
-      : { cx: 540, top: 282, pw: 560, ph: 560, b: 22, cap: 116, rot: -0.06, logoW: 300, logoY: 40, tapeY: 1032, pillY: 1128, sun: 240, mark: 230 };
+      ? { cx: 540, top: 604, pw: 660, ph: 660, b: 28, cap: 136, rot: -0.06, logoW: 360, logoY: 268, tapeY: 1474, pillY: 1582, sun: 300, mark: 300 }
+      : { cx: 540, top: 282, pw: 560, ph: 560, b: 22, cap: 116, rot: -0.06, logoW: 260, logoY: 48, tapeY: 1032, pillY: 1210, sun: 240, mark: 230 };
   },
   photoBox(W, H, fmt) { const g = this.geo(W, H, fmt); return { x: g.cx - g.pw / 2, y: g.top + g.b, w: g.pw, h: g.ph }; },
   draw(ctx, W, H, t, S, fmt) {
@@ -416,9 +478,8 @@ const card = {
     });
     ctx.restore();
 
-    // the sun rising behind the polaroid's top corner, its rings turning
+    // the sun rising behind the polaroid's corner, low enough to stay clear of the (orange) logo
     const su = ease.out(seg(t, 0.1, 1.3));
-    // low enough on the right that it never sits behind the (orange) logo
     const sx = ccx + cw * 0.42, sy = g.top + ch * 0.3, sr = g.sun * (0.75 + 0.25 * su);
     const halo = ctx.createRadialGradient(sx, sy, sr * 0.6, sx, sy, sr * 2.1);
     halo.addColorStop(0, `rgba(253,145,4,${0.38 * su})`); halo.addColorStop(1, 'rgba(253,145,4,0)');
@@ -435,53 +496,55 @@ const card = {
     laySmoke(ctx, W, H, t, { a: C.orange, b: C.indigo2, amt: 0.65, mode: 'sides', seed: 7.3 }, 0.5);
 
     // the logo
-    ctx.save(); ctx.shadowColor = 'rgba(253,145,4,.25)'; ctx.shadowBlur = 40;
-    drawLogo(ctx, { x: (W - g.logoW) / 2, y: g.logoY, w: g.logoW, t });
-    ctx.restore();
+    const lb = logoBoxAt(W, g.logoY, g.logoW);
+    item(ctx, S, 'logo', lb, () => {
+      ctx.save(); ctx.shadowColor = 'rgba(253,145,4,.25)'; ctx.shadowBlur = 40;
+      drawLogo(ctx, { x: lb.x, y: lb.y, w: lb.w, t });
+      ctx.restore();
+    });
 
     // the polaroid drops in and swings to rest
-    const cu = ease.back(seg(t, 0.3, 1.2));
-    const rot = g.rot + (1 - cu) * 0.22;
-    ctx.save(); ctx.globalAlpha = clamp(cu * 2.2);
-    ctx.translate(ccx, ccy - (1 - cu) * 420); ctx.rotate(rot); ctx.translate(-cw / 2, -ch / 2);
-    ctx.save(); ctx.shadowColor = 'rgba(3,2,15,.65)'; ctx.shadowBlur = 70; ctx.shadowOffsetY = 34;
-    rr(ctx, 0, 0, cw, ch, 14); ctx.fillStyle = C.cream; ctx.fill(); ctx.restore();
-    rr(ctx, g.b, g.b, g.pw, g.ph, 6); ctx.save(); ctx.clip();
-    photo(ctx, S, { x: g.b, y: g.b, w: g.pw, h: g.ph }, 1.07 - 0.05 * seg(t, 0.3, DUR));
-    // a gloss passing over the print
-    for (const a of [2.5, 5.3]) {
-      const u = seg(t, a, a + 0.9);
-      if (u <= 0 || u >= 1) continue;
-      const x = -g.pw * 0.6 + g.pw * 2.2 * ease.inOut(u);
-      const gl = ctx.createLinearGradient(x - 160, 0, x + 160, g.ph);
-      gl.addColorStop(0, 'rgba(255,255,255,0)'); gl.addColorStop(0.5, 'rgba(255,255,255,.28)'); gl.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = gl; ctx.fillRect(g.b, g.b, g.pw, g.ph);
-    }
-    ctx.restore();
-    ctx.strokeStyle = 'rgba(13,11,42,.08)'; ctx.lineWidth = 2; rr(ctx, g.b, g.b, g.pw, g.ph, 6); ctx.stroke();
-    // the caption: the product, or the shop's name
-    const capY = g.b + g.ph + g.cap / 2;
-    if (S.fields.title) {
-      let size = story ? 54 : 44; let lines = wrap(ctx, S.fields.title, g.pw - 40, size, 800);
-      if (lines.length > 1) { size *= 0.84; lines = wrap(ctx, S.fields.title, g.pw - 40, size, 800).slice(0, 2); }
-      lines.forEach((l, i) => text(ctx, l, cw / 2, capY + (i - (lines.length - 1) / 2) * size * 1.15 + size * 0.36, { size, weight: 800, color: C.night, maxW: g.pw - 40 }));
-    } else {
-      const mw = g.mark, mh = mw * logoRatio('text');
-      drawLogo(ctx, { x: (cw - mw) / 2, y: capY - mh / 2, w: mw, parts: 'text', look: 'indigo', t: t - 0.9 });
-    }
-    // a strip of tape holding it to the wall
-    const tu = ease.out(seg(t, 1.0, 1.35));
-    if (tu > 0) {
-      ctx.save(); ctx.translate(cw / 2, 0); ctx.rotate(0.07); ctx.scale(1.25 - 0.25 * tu, 1.25 - 0.25 * tu); ctx.globalAlpha *= tu;
-      const tw = story ? 230 : 180, th = story ? 62 : 50;
-      ctx.fillStyle = 'rgba(253,145,4,.82)'; ctx.fillRect(-tw / 2, -th / 2, tw, th);
-      ctx.fillStyle = 'rgba(255,255,255,.18)';
-      for (let x = -tw / 2 + 8; x < tw / 2; x += 22) ctx.fillRect(x, -th / 2, 8, th);
+    item(ctx, S, 'frame', { x: ccx - cw / 2, y: g.top, w: cw, h: ch }, () => {
+      const cu = ease.back(seg(t, 0.3, 1.2));
+      const rot = g.rot + (1 - cu) * 0.22;
+      ctx.save(); ctx.globalAlpha = clamp(cu * 2.2);
+      ctx.translate(ccx, ccy - (1 - cu) * 420); ctx.rotate(rot); ctx.translate(-cw / 2, -ch / 2);
+      ctx.save(); ctx.shadowColor = 'rgba(3,2,15,.65)'; ctx.shadowBlur = 70; ctx.shadowOffsetY = 34;
+      rr(ctx, 0, 0, cw, ch, 14); ctx.fillStyle = C.cream; ctx.fill(); ctx.restore();
+      rr(ctx, g.b, g.b, g.pw, g.ph, 6); ctx.save(); ctx.clip();
+      photo(ctx, S, { x: g.b, y: g.b, w: g.pw, h: g.ph }, 1.07 - 0.05 * seg(t, 0.3, DUR));
+      for (const a of [2.5, 5.3]) {
+        const u = seg(t, a, a + 0.9);
+        if (u <= 0 || u >= 1) continue;
+        const x = -g.pw * 0.6 + g.pw * 2.2 * ease.inOut(u);
+        const gl = ctx.createLinearGradient(x - 160, 0, x + 160, g.ph);
+        gl.addColorStop(0, 'rgba(255,255,255,0)'); gl.addColorStop(0.5, 'rgba(255,255,255,.28)'); gl.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = gl; ctx.fillRect(g.b, g.b, g.pw, g.ph);
+      }
       ctx.restore();
-    }
-    ctx.restore();
+      ctx.strokeStyle = 'rgba(13,11,42,.08)'; ctx.lineWidth = 2; rr(ctx, g.b, g.b, g.pw, g.ph, 6); ctx.stroke();
+      const capY = g.b + g.ph + g.cap / 2;
+      if (S.fields.title) {
+        let size = story ? 54 : 44; let lines = wrap(ctx, S.fields.title, g.pw - 40, size, 800);
+        if (lines.length > 1) { size *= 0.84; lines = wrap(ctx, S.fields.title, g.pw - 40, size, 800).slice(0, 2); }
+        lines.forEach((l, i) => text(ctx, l, cw / 2, capY + (i - (lines.length - 1) / 2) * size * 1.15 + size * 0.36, { size, weight: 800, color: C.night, maxW: g.pw - 40 }));
+      } else {
+        const mw = g.mark, mh = mw * logoRatio('text');
+        drawLogo(ctx, { x: opticalX(cw, mw, 'text'), y: capY - mh / 2, w: mw, parts: 'text', look: 'indigo', t: t - 0.9 });
+      }
+      const tu = ease.out(seg(t, 1.0, 1.35));
+      if (tu > 0) {
+        ctx.save(); ctx.translate(cw / 2, 0); ctx.rotate(0.07); ctx.scale(1.25 - 0.25 * tu, 1.25 - 0.25 * tu); ctx.globalAlpha *= tu;
+        const tw = story ? 230 : 180, th = story ? 62 : 50;
+        ctx.fillStyle = 'rgba(253,145,4,.82)'; ctx.fillRect(-tw / 2, -th / 2, tw, th);
+        ctx.fillStyle = 'rgba(255,255,255,.18)';
+        for (let x = -tw / 2 + 8; x < tw / 2; x += 22) ctx.fillRect(x, -th / 2, 8, th);
+        ctx.restore();
+      }
+      ctx.restore();
+    });
 
-    badge(ctx, S.fields.badge, ccx + cw / 2 - 20, g.top + 30, story ? 122 : 100, 1.45, t, { rot: 0.18, shape: 'burst' });
+    badgeItem(ctx, S, ccx + cw / 2 - 20, g.top + 30, story ? 122 : 100, 1.45, t, { rot: 0.18, shape: 'burst' });
 
     // sparkles round the print
     const SP = story
@@ -522,16 +585,13 @@ const card = {
       ctx.restore();
     });
 
-    const pa = ease.out(seg(t, 1.3, 1.85));
-    ctx.save(); ctx.translate(0, (1 - pa) * 30);
-    pills(ctx, W / 2, g.pillY, W - 120, S.info, { a: pa, h: story ? 84 : 74, size: story ? 36 : 31, bg: 'rgba(13,11,42,.85)' });
-    ctx.restore();
+    contactBlock(ctx, S, W, g.pillY, t, 1.3, { h: story ? 80 : 72, size: story ? 34 : 30, bg: 'rgba(13,11,42,.85)' });
     grain(ctx, W, H, 0.06);
   },
 };
 
 // =====================================================================================
-// 4. سريع — for every day: the photo, a neat logo plate, one orange bar
+// 4. سريع — for every day: the photo clear, a small logo plate, one bar with the numbers
 // =====================================================================================
 const quick = {
   id: 'quick', name: 'سريع',
@@ -541,56 +601,71 @@ const quick = {
     ctx.fillStyle = C.night; ctx.fillRect(0, 0, W, H);
     const pu = ease.out(seg(t, 0, 1.2));
     ctx.save(); ctx.globalAlpha = clamp(pu * 1.4);
-    photo(ctx, S, this.photoBox(W, H), 1.06 - 0.06 * pu + 0.03 * seg(t, 1.2, DUR));
+    photo(ctx, S, this.photoBox(W, H), 1.05 - 0.05 * pu + 0.025 * seg(t, 1.2, DUR));
     ctx.restore();
-    const topH = story ? 560 : 380;
-    const tg = ctx.createLinearGradient(0, 0, 0, topH);
-    tg.addColorStop(0, 'rgba(13,11,42,.55)'); tg.addColorStop(1, 'rgba(13,11,42,0)');
-    ctx.fillStyle = tg; ctx.fillRect(0, 0, W, topH);
-    const fy = story ? 1120 : 800;
+    // only a low shade under the bar: the product stays clear
+    const fy = H * 0.76;
     const fg = ctx.createLinearGradient(0, fy, 0, H);
-    fg.addColorStop(0, 'rgba(13,11,42,0)'); fg.addColorStop(0.4, 'rgba(13,11,42,.62)'); fg.addColorStop(1, 'rgba(13,11,42,.9)');
+    fg.addColorStop(0, 'rgba(13,11,42,0)'); fg.addColorStop(1, 'rgba(13,11,42,.55)');
     ctx.fillStyle = fg; ctx.fillRect(0, fy, W, H - fy);
-    laySmoke(ctx, W, H, t, { a: C.orange, b: C.indigo2, amt: 0.75, mode: 'bottom', seed: 9.1, rise: 0.8 }, 0.7);
+    laySmoke(ctx, W, H, t, { a: C.orange, b: C.indigo2, amt: 0.7, mode: 'bottom', seed: 9.1, rise: 0.8 }, 0.5);
 
-    // the logo plate
-    const lw = story ? 330 : 250, lh = lw * logoRatio();
-    const padX = story ? 44 : 34, padY = story ? 30 : 24;
-    const px = (W - lw) / 2 - padX, py = (story ? 250 : 46) - padY;
-    const pa = ease.back(seg(t, 0.1, 0.7));
-    ctx.save(); ctx.translate(W / 2, py + (lh + 2 * padY) / 2); ctx.scale(0.85 + 0.15 * pa, 0.85 + 0.15 * pa); ctx.translate(-W / 2, -(py + (lh + 2 * padY) / 2));
-    ctx.globalAlpha = clamp(pa);
-    rr(ctx, px, py, lw + 2 * padX, lh + 2 * padY, 36);
-    ctx.fillStyle = 'rgba(13,11,42,.74)'; ctx.fill();
-    ctx.strokeStyle = 'rgba(253,145,4,.55)'; ctx.lineWidth = 3; ctx.stroke();
-    ctx.restore();
-    logoWithSheen(ctx, W, H, { x: (W - lw) / 2, y: py + padY, w: lw, t: t - 0.25 }, t, [2.2, 5.0]);
-
-    // foot
-    const ba = ease.out(seg(t, 0.9, 1.5));
-    const bh = story ? 132 : 112, by = story ? 1500 : 1170, bx = story ? 60 : 56;
-    ctx.save(); ctx.translate(0, (1 - ba) * 60); ctx.globalAlpha = ba;
-    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = 18;
-    text(ctx, S.info.line, W / 2, by - (story ? 34 : 28), { size: story ? 36 : 30, weight: 700, maxW: W - 140 });
-    ctx.restore();
-    ctx.shadowColor = 'rgba(253,145,4,.45)'; ctx.shadowBlur = 40;
-    rr(ctx, bx, by, W - 2 * bx, bh, bh / 2); ctx.fillStyle = C.orange; ctx.fill();
-    ctx.shadowColor = 'transparent';
-    // inside the bar: phone on the right, Instagram on the left
-    const items = contactItems(S.info).slice(0, 2);
-    const half = (W - 2 * bx) / 2;
-    items.forEach((it, i) => {
-      const cx = bx + half * (i === 0 ? 1.5 : 0.5);
-      ctx.save(); ctx.font = F(800, story ? 40 : 34); const tw = Math.min(ctx.measureText(it.text).width, half - 120); ctx.restore();
-      const iconX = cx + tw / 2 + 30;
-      ctx.beginPath(); ctx.arc(iconX, by + bh / 2, story ? 30 : 26, 0, Math.PI * 2); ctx.fillStyle = C.night; ctx.fill();
-      icon(ctx, it.icon, iconX, by + bh / 2, story ? 30 : 26, C.orange);
-      text(ctx, it.text, cx - 14, by + bh / 2 + 2, { size: story ? 40 : 34, weight: 800, color: it.ph ? 'rgba(13,11,42,.5)' : C.night, align: 'center', dir: 'ltr', base: 'middle', maxW: half - 120 });
+    // the logo plate, small and centred
+    const lw = story ? 250 : 200, lh = lw * logoRatio();
+    const padX = story ? 36 : 28, padY = story ? 24 : 18;
+    const plate = { x: (W - lw) / 2 - padX, y: (story ? 262 : 52) - padY, w: lw + 2 * padX, h: lh + 2 * padY };
+    const lb = { x: opticalX(W, lw), y: plate.y + padY, w: lw, h: lh };
+    item(ctx, S, 'logo', plate, () => {
+      const pa = ease.back(seg(t, 0.1, 0.7));
+      const pcx = plate.x + plate.w / 2, pcy = plate.y + plate.h / 2;
+      ctx.save(); ctx.translate(pcx, pcy); ctx.scale(0.85 + 0.15 * pa, 0.85 + 0.15 * pa); ctx.translate(-pcx, -pcy);
+      ctx.globalAlpha = clamp(pa);
+      rr(ctx, plate.x, plate.y, plate.w, plate.h, 30);
+      ctx.fillStyle = 'rgba(13,11,42,.72)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(253,145,4,.55)'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.restore();
+      logoWithSheen(ctx, W, H, { x: lb.x, y: lb.y, w: lw, t: t - 0.25 }, t, [2.2, 5.0]);
     });
-    ctx.fillStyle = 'rgba(13,11,42,.25)'; ctx.fillRect(W / 2 - 1.5, by + 26, 3, bh - 52);
-    ctx.restore();
-    title(ctx, S.fields.title, W / 2, by - (story ? 110 : 94), W - 160, t, 1.0, story ? 62 : 52);
-    badge(ctx, S.fields.badge, W - (story ? 190 : 160), story ? 1180 : 860, story ? 120 : 100, 1.3, t, { rot: 0.12 });
+
+    // the bar: an orange frame with white words (Abbas), or filled orange if he picks it
+    const bh = story ? 108 : 96, bx = story ? 64 : 60, by = story ? 1556 : 1208;
+    const filled = S.info.bar === 'fill';
+    titleItem(ctx, S, W, by - (story ? 104 : 90), W - 160, t, 1.0, story ? 58 : 50);
+    shopLine(ctx, S, 'line', W, by - (story ? 26 : 22), story ? 34 : 30, t, 0.9);
+    item(ctx, S, 'contact', { x: bx, y: by, w: W - 2 * bx, h: bh }, () => {
+      const ba = ease.out(seg(t, 0.9, 1.5));
+      ctx.save(); ctx.translate(0, (1 - ba) * 50); ctx.globalAlpha *= ba;
+      rr(ctx, bx, by, W - 2 * bx, bh, bh / 2);
+      if (filled) {
+        ctx.save(); ctx.shadowColor = 'rgba(253,145,4,.45)'; ctx.shadowBlur = 36; ctx.fillStyle = C.orange; ctx.fill(); ctx.restore();
+      } else {
+        ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 14; ctx.lineWidth = 5; ctx.strokeStyle = C.orange; ctx.stroke(); ctx.restore();
+      }
+      const items = contactItems(S.info).slice(0, 2);
+      const half = (W - 2 * bx) / 2;
+      const ink = filled ? C.night : C.white;
+      const r = story ? 27 : 23, gap = story ? 14 : 12, pad = story ? 30 : 26;
+      items.forEach((it, i) => {
+        // the right half holds the first item (Arabic reads from the right)
+        const h0 = bx + (i === 0 ? half : 0), avail = half - 2 * pad;
+        let size = story ? 36 : 31;
+        ctx.save(); ctx.font = F(800, size);
+        let tw = ctx.measureText(it.text).width;
+        const room = avail - 2 * r - gap;
+        if (tw > room) { size *= room / tw; tw = room; }
+        ctx.restore();
+        const group = 2 * r + gap + tw, gx = h0 + (half - group) / 2;   // the group, centred in its half
+        const iconX = gx + group - r, cy = by + bh / 2;
+        ctx.beginPath(); ctx.arc(iconX, cy, r, 0, Math.PI * 2); ctx.fillStyle = filled ? C.night : C.orange; ctx.fill();
+        icon(ctx, it.icon, iconX, cy, r, filled ? C.orange : C.night);
+        ctx.save(); if (!filled) { ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = 12; }
+        text(ctx, it.text, gx + tw, cy + 2, { size, weight: 800, color: it.ph ? 'rgba(255,255,255,.5)' : ink, align: 'right', dir: 'ltr', base: 'middle' });
+        ctx.restore();
+      });
+      ctx.fillStyle = filled ? 'rgba(13,11,42,.25)' : 'rgba(253,145,4,.6)'; ctx.fillRect(W / 2 - 1.5, by + 24, 3, bh - 48);
+      ctx.restore();
+    });
+    badgeItem(ctx, S, W - (story ? 190 : 160), story ? 1240 : 860, story ? 120 : 100, 1.3, t, { rot: 0.12 });
     grain(ctx, W, H, 0.05);
   },
 };
@@ -654,6 +729,48 @@ export function render(ctx, design, fmt, t, S) {
   const [W, H] = FORMATS[fmt];
   ctx.save();
   ctx.setTransform(ctx.canvas.width / W, 0, 0, ctx.canvas.height / H, 0, 0);
+  if (S.editing) S.boxes = [];
   design.draw(ctx, W, H, t, S, fmt);
+  if (S.editing) editOverlay(ctx, W, H, fmt, S);
+  ctx.restore();
+}
+
+/** while arranging: where Instagram covers the story, and every movable element's box */
+function editOverlay(ctx, W, H, fmt, S) {
+  const [top, bottom] = SAFE[fmt];
+  ctx.save();
+  if (fmt === 'story') {
+    ctx.fillStyle = 'rgba(200,30,60,.18)';
+    ctx.fillRect(0, 0, W, top); ctx.fillRect(0, bottom, W, H - bottom);
+    ctx.setLineDash([18, 12]); ctx.strokeStyle = 'rgba(255,90,110,.8)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(0, top); ctx.lineTo(W, top); ctx.moveTo(0, bottom); ctx.lineTo(W, bottom); ctx.stroke();
+    ctx.setLineDash([]);
+    text(ctx, 'إنستغرام يغطي هنا', W / 2, top - 40, { size: 34, weight: 700, color: 'rgba(255,255,255,.85)' });
+    text(ctx, 'إنستغرام يغطي هنا', W / 2, bottom + 70, { size: 34, weight: 700, color: 'rgba(255,255,255,.85)' });
+  } else {
+    // the profile grid shows the post cut to 3:4: a thin edge on each side disappears there
+    const e = Math.round((W - H * 3 / 4) / 2);
+    ctx.fillStyle = 'rgba(200,30,60,.16)'; ctx.fillRect(0, 0, e, H); ctx.fillRect(W - e, 0, e, H);
+  }
+  for (const b of S.boxes) {
+    const on = b.id === S.sel;
+    ctx.setLineDash(on ? [] : [14, 10]);
+    ctx.lineWidth = on ? 6 : 3;
+    ctx.strokeStyle = on ? C.orange : 'rgba(255,255,255,.85)';
+    ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 8;
+    rr(ctx, b.x - 10, b.y - 10, b.w + 20, b.h + 20, 18); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.setLineDash([]);
+    if (on) {
+      for (const [hx, hy] of [[b.x - 10, b.y - 10], [b.x + b.w + 10, b.y - 10], [b.x - 10, b.y + b.h + 10], [b.x + b.w + 10, b.y + b.h + 10]]) {
+        ctx.beginPath(); ctx.arc(hx, hy, 13, 0, Math.PI * 2); ctx.fillStyle = C.orange; ctx.fill();
+        ctx.lineWidth = 4; ctx.strokeStyle = C.white; ctx.stroke();
+      }
+      const label = ITEM_NAMES[b.id] || b.id;
+      ctx.font = F(800, 30); const lw = ctx.measureText(label).width + 36;
+      const ly = b.y - 64 < 10 ? b.y + b.h + 24 : b.y - 64;
+      rr(ctx, b.x + b.w / 2 - lw / 2, ly, lw, 46, 23); ctx.fillStyle = C.orange; ctx.fill();
+      text(ctx, label, b.x + b.w / 2, ly + 33, { size: 28, weight: 800, color: C.night });
+    }
+  }
   ctx.restore();
 }

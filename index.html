@@ -41,6 +41,16 @@
   .play { position: absolute; inset-inline-start: 10px; bottom: 10px; width: 38px; height: 38px; border-radius: 50%; background: rgba(13,11,42,.6);
     display: grid; place-items: center; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
   .play svg { width: 16px; height: 16px; fill: #fff; }
+  .modes { width: fit-content; margin: 8px auto 0; }
+  .modes button { padding: 0 18px; }
+  .arrange { max-width: 560px; margin: 10px auto 0; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; display: grid; gap: 10px; }
+  .arrange[hidden] { display: none; }
+  .selname { font-weight: 800; font-size: 14.5px; color: var(--orange2); text-align: center; }
+  .sizer { display: grid; grid-template-columns: auto 1fr 48px; align-items: center; gap: 10px; font-weight: 700; font-size: 14px; color: var(--muted); }
+  .sizer input { width: 100%; accent-color: var(--orange); height: 28px; }
+  .sizer output { font: 700 13px Almarai, sans-serif; color: var(--text); text-align: left; direction: ltr; }
+  .arrange .btn { min-height: 44px; font-size: 14.5px; }
+  .btn:disabled { opacity: .45; }
   .hint { text-align: center; color: var(--muted); font-size: 12.5px; padding: 6px 16px 0; min-height: 26px; }
 
   .controls { max-width: 560px; margin: 0 auto; padding: 8px 16px 0; display: grid; gap: 14px; }
@@ -72,6 +82,7 @@
   .fields { display: grid; gap: 10px; padding: 0 16px 16px; }
   .field { display: grid; gap: 6px; }
   .field span { font-size: 13.5px; color: var(--muted); font-weight: 700; }
+  .field select { width: 100%; min-height: 48px; padding: 0 12px; border-radius: 12px; background: var(--night); border: 1px solid var(--line); font-size: 16px; color: var(--text); }
   .field input { width: 100%; min-height: 48px; padding: 0 14px; border-radius: 12px; background: var(--night); border: 1px solid var(--line); font-size: 16px; }
   .field input:focus { outline: 2px solid var(--orange); outline-offset: 0; }
   .field input[dir="ltr"] { text-align: left; }
@@ -117,6 +128,15 @@
     <canvas id="view" aria-label="معاينة التصميم"></canvas>
     <button class="play" id="play" aria-label="إيقاف الحركة"><svg viewBox="0 0 16 16" id="playIcon"><rect x="3" y="2" width="3.6" height="12" rx="1"/><rect x="9.4" y="2" width="3.6" height="12" rx="1"/></svg></button>
   </div>
+</div>
+<div class="modes seg" id="modes" role="tablist" aria-label="شنو تحرّك">
+  <button data-m="photo" class="on" role="tab">حرّك الصورة</button>
+  <button data-m="arrange" role="tab">رتّب التصميم</button>
+</div>
+<div class="arrange" id="arrange" hidden>
+  <div class="selname" id="selName">اضغط على أي شي بالتصميم حتى تختاره</div>
+  <label class="sizer"><span>الحجم</span><input type="range" id="size" min="35" max="260" step="1" value="100" disabled><output id="sizeOut">100%</output></label>
+  <div class="row"><button class="btn" id="resetOne" disabled>رجّع هذا لمكانه</button><button class="btn ghost" id="resetAll">رجّع التصميم كله</button></div>
 </div>
 <p class="hint" id="hint">اختار صورة من المعرض حتى تطلع داخل التصميم</p>
 
@@ -174,6 +194,7 @@
     <label class="field"><span>الكلام اللي فوق الرقم والحساب <button type="button" class="reset" data-reset="line">رجّع الأصلي</button></span><input id="sLine" placeholder="(فارغ: ما يطلع شي)"></label>
     <label class="field"><span>العنوان (اختياري)</span><input id="sPlace" placeholder="مثلاً: الحلة، شارع ..."></label>
     <label class="field"><span>كلام الشريط المتحرك (بتصميم بطاقة) <button type="button" class="reset" data-reset="tape">رجّع الأصلي</button></span><input id="sTape" placeholder="(فارغ: يطلع الأصلي)"></label>
+    <label class="field"><span>شريط الرقم (بتصميم سريع)</span><select id="sBar"><option value="outline">إطار برتقالي والكتابة بيضاء</option><option value="fill">برتقالي ملوّن</option></select></label>
     <div class="row"><button class="btn primary" id="setSave">حفظ</button><button class="btn ghost" id="setClose">رجوع</button></div>
   </div>
 </div>
