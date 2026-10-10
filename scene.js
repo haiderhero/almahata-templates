@@ -857,8 +857,183 @@ function makeCalm(id, name, v) {
 const calm = makeCalm('calm', 'هادئ', 1);
 const calm2 = makeCalm('calm2', 'هادئ 2', 2);
 
-// the calm ones first: Abbas likes them best
-export const DESIGNS = [calm, calm2, showroom, cinema, card, quick];
+// =====================================================================================
+// 7–8. Two new styles (Abbas wanted more, «مميزة وبستايل جديد»):
+//    زجاج — slow coloured lights behind, the photo in a frosted glass frame, glass chips
+//    شريط — orange, two strips of words crossing and running opposite ways, the photo tilted
+// =====================================================================================
+const hexA = (h, a) => `rgba(${parseInt(h.slice(1, 3), 16)},${parseInt(h.slice(3, 5), 16)},${parseInt(h.slice(5, 7), 16)},${a})`;
+
+/** a headline (the product, or Abbas's heading) fitted to two balanced lines */
+function fitHead(ctx, s, maxW, size, minSize = 34) {
+  let lines = wrap(ctx, s, maxW, size, 800);
+  const widest = () => { ctx.save(); ctx.font = F(800, size); const w = Math.max(0, ...lines.map((l) => ctx.measureText(l).width)); ctx.restore(); return w; };
+  while ((lines.length > 2 || widest() > maxW) && size > minSize) { size *= 0.93; lines = wrap(ctx, s, maxW, size, 800); }
+  if (lines.length === 2) lines = balance2(ctx, s, size, 800);
+  return { lines: lines.slice(0, 2), size, w: widest() };
+}
+/** the heading and the light line under it as one movable block; y is its top */
+function headBlock(ctx, S, { x, y, maxW, align = 'center', size, subSize, color = C.white, subColor = C.white, t, t0 = 1.0, shadow = 0 }) {
+  const head = (S.fields.title || S.info.head || '').trim(), sub = (S.info.sub || '').trim();
+  if (!head && !sub) return 0;
+  const f = head ? fitHead(ctx, head, maxW, size) : { lines: [], size, w: 0 };
+  const lh = f.size * 1.14;
+  ctx.save(); ctx.font = F(400, subSize); const sw = sub ? Math.min(maxW, ctx.measureText(sub).width) : 0; ctx.restore();
+  const w = Math.max(f.w, sw), h = f.lines.length * lh + (sub ? subSize * 1.45 : 0);
+  const bx = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
+  item(ctx, S, 'headline', { x: bx, y, w, h }, () => {
+    ctx.save(); if (shadow) { ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = shadow; }
+    f.lines.forEach((l, i) => {
+      const u = ease.out(seg(t, t0 + i * 0.12, t0 + 0.6 + i * 0.12)); if (u <= 0) return;
+      ctx.save(); ctx.globalAlpha *= u; ctx.translate(0, (1 - u) * 30);
+      text(ctx, l, x, y + f.size * 0.9 + i * lh, { size: f.size, weight: 800, align, color });
+      ctx.restore();
+    });
+    if (sub) {
+      const u = ease.out(seg(t, t0 + 0.3, t0 + 0.9));
+      if (u > 0) { ctx.save(); ctx.globalAlpha *= u; ctx.translate(0, (1 - u) * 18); text(ctx, sub, x, y + f.lines.length * lh + subSize * 1.05, { size: subSize, weight: 400, align, color: subColor, maxW }); ctx.restore(); }
+    }
+    ctx.restore();
+  });
+  return h;
+}
+/** the price as a pill (a sticker for the new styles); `right` is its right edge, so it never leaves the frame */
+function priceChip(ctx, S, right, y, t, t0, { size = 40, bg = C.orange, fg = C.night, rot = 0 } = {}) {
+  const s = S.fields.badge; if (!s) return;
+  ctx.save(); ctx.font = F(800, size); const tw = ctx.measureText(s).width; ctx.restore();
+  const h = size * 1.9, w = tw + size * 1.7, x = right - w / 2;
+  item(ctx, S, 'badge', { x: x - w / 2, y: y - h / 2, w, h }, () => {
+    const u = ease.back(seg(t, t0, t0 + 0.5)); if (u <= 0) return;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(u, u);
+    ctx.shadowColor = 'rgba(0,0,0,.3)'; ctx.shadowBlur = 22; ctx.shadowOffsetY = 8;
+    rr(ctx, -w / 2, -h / 2, w, h, h / 2); ctx.fillStyle = bg; ctx.fill(); ctx.shadowColor = 'transparent';
+    text(ctx, s, 0, size * 0.36, { size, weight: 800, color: fg });
+    ctx.restore();
+  });
+}
+
+// ---------- زجاج ----------
+const auroraC = document.createElement('canvas');
+function aurora(ctx, W, H, t) {
+  const a = auroraC; a.width = 180; a.height = Math.round((180 * H) / W);
+  const x = a.getContext('2d');
+  x.fillStyle = '#100c38'; x.fillRect(0, 0, a.width, a.height);
+  // [colour, x, y, radius] in fractions of the frame; each drifts on its own slow loop
+  const blobs = [[C.orange, 0.22, 0.2, 0.62], ['#7b3cff', 0.82, 0.32, 0.66], ['#ff4f7b', 0.7, 0.78, 0.58], [C.indigo2, 0.15, 0.72, 0.7], [C.orange2, 0.9, 0.95, 0.5]];
+  x.globalCompositeOperation = 'lighter';
+  blobs.forEach(([c, bx, by, r], i) => {
+    const px = (bx + 0.13 * Math.sin(t * 0.55 + i * 1.7)) * a.width, py = (by + 0.09 * Math.cos(t * 0.42 + i * 2.3)) * a.height;
+    const gr = x.createRadialGradient(px, py, 0, px, py, r * a.width);
+    gr.addColorStop(0, hexA(c, 0.62)); gr.addColorStop(1, hexA(c, 0));
+    x.fillStyle = gr; x.fillRect(0, 0, a.width, a.height);
+  });
+  x.globalCompositeOperation = 'source-over';
+  ctx.save(); ctx.imageSmoothingQuality = 'high'; ctx.drawImage(a, 0, 0, W, H); ctx.restore();
+}
+function glassGeo(W, H, fmt) {
+  return fmt === 'story'
+    ? { logoY: 262, logoW: 250, photo: { x: 140, y: 490, w: 800, h: 760 }, pad: 22, r: 40, headY: 1312, head: 72, sub: 40, contactY: 1566, ch: 80, cs: 33 }
+    : { logoY: 36, logoW: 190, photo: { x: 200, y: 208, w: 680, h: 620 }, pad: 18, r: 34, headY: 872, head: 60, sub: 34, contactY: 1148, ch: 72, cs: 30 };
+}
+const glass = {
+  id: 'glass', name: 'زجاج',
+  photoBox(W, H, fmt) { return glassGeo(W, H, fmt).photo; },
+  draw(ctx, W, H, t, S, fmt) {
+    const story = fmt === 'story', g = glassGeo(W, H, fmt), b = g.photo, P = g.pad;
+    aurora(ctx, W, H, t);
+    item(ctx, S, 'frame', b, () => {
+      const u = ease.out(seg(t, 0.15, 1.1));
+      const lift = (1 - u) * 70 + Math.sin(Math.max(0, t - 1.1) * 1.2) * 4;
+      ctx.save(); ctx.globalAlpha *= u; ctx.translate(0, lift);
+      // the glass: a pale frosted pane with a bright edge, its light catching the top
+      ctx.save(); ctx.shadowColor = 'rgba(6,4,30,.45)'; ctx.shadowBlur = 60; ctx.shadowOffsetY = 24;
+      rr(ctx, b.x - P, b.y - P, b.w + 2 * P, b.h + 2 * P, g.r + P); ctx.fillStyle = 'rgba(255,255,255,.14)'; ctx.fill(); ctx.restore();
+      const edge = ctx.createLinearGradient(b.x, b.y - P, b.x + b.w, b.y + b.h);
+      edge.addColorStop(0, 'rgba(255,255,255,.75)'); edge.addColorStop(0.5, 'rgba(255,255,255,.15)'); edge.addColorStop(1, 'rgba(255,255,255,.45)');
+      rr(ctx, b.x - P, b.y - P, b.w + 2 * P, b.h + 2 * P, g.r + P); ctx.lineWidth = 2.5; ctx.strokeStyle = edge; ctx.stroke();
+      ctx.save(); rr(ctx, b.x, b.y, b.w, b.h, g.r); ctx.clip();
+      photo(ctx, S, b, 1.07 - 0.07 * u + 0.02 * seg(t, 1.1, DUR));
+      // a reflection sliding across the glass, once
+      const su = seg(t, 2.3, 3.3);
+      if (su > 0 && su < 1) {
+        const sx = b.x - b.w * 0.4 + b.w * 1.8 * ease.inOut(su);
+        const sh = ctx.createLinearGradient(sx - 140, b.y, sx + 140, b.y + b.h * 0.3);
+        sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(0.5, 'rgba(255,255,255,.2)'); sh.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = sh; ctx.fillRect(b.x, b.y, b.w, b.h);
+      }
+      ctx.restore();
+      ctx.restore();
+    });
+    priceChip(ctx, S, b.x + b.w + 6, b.y + (story ? -6 : 16), t, 1.4, { size: story ? 40 : 34, rot: 0.06 });
+    const lb = logoBoxAt(W, g.logoY, g.logoW);
+    item(ctx, S, 'logo', lb, () => logoWithSheen(ctx, W, H, { x: lb.x, y: lb.y, w: lb.w, t: t - 0.2 }, t));
+    headBlock(ctx, S, { x: W / 2, y: g.headY, maxW: W - 160, size: g.head, subSize: g.sub, t, t0: 1.0, shadow: 20 });
+    contactBlock(ctx, S, W, g.contactY, t, 1.3, { h: g.ch, size: g.cs, bg: 'rgba(255,255,255,.16)', stroke: 'rgba(255,255,255,.45)', dot: C.white, dotFg: C.night });
+    grain(ctx, W, H, 0.04);
+  },
+};
+
+// ---------- شريط ----------
+/** a strip of words across the frame at an angle, running at v px/s (negative: the other way) */
+function strip(ctx, W, H, cy, ang, h, bg, fg, words, v, t, size, u = 1, out = 0) {
+  if (u <= 0) return;
+  const L = Math.hypot(W, H);
+  ctx.save(); ctx.translate(W / 2 + (1 - u) * (v > 0 ? -L : L) * 0.6, cy); ctx.rotate(ang);
+  if (bg) { ctx.shadowColor = 'rgba(0,0,0,.22)'; ctx.shadowBlur = 24; ctx.shadowOffsetY = 8; ctx.fillStyle = bg; ctx.fillRect(-L, -h / 2, 2 * L, h); ctx.shadowColor = 'transparent'; }
+  ctx.font = F(800, size); ctx.direction = 'rtl'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  const unit = `${words}   •   `, uw = ctx.measureText(unit).width;
+  const off = (((t * v) % uw) + uw) % uw;
+  for (let x = -L - uw + off; x < L; x += uw) {
+    if (out) { ctx.lineWidth = out; ctx.strokeStyle = fg; ctx.strokeText(unit, x, size * 0.06); } else { ctx.fillStyle = fg; ctx.fillText(unit, x, size * 0.06); }
+  }
+  ctx.restore();
+}
+function stripGeo(W, H, fmt) {
+  return fmt === 'story'
+    ? { logoY: 262, logoW: 250, photo: { x: 110, y: 600, w: 860, h: 640 }, s1: 588, s2: 1262, sh: 100, ss: 46, headY: 1338, head: 74, sub: 40, contactY: 1574, ch: 78, cs: 32, big: 230 }
+    : { logoY: 30, logoW: 180, photo: { x: 150, y: 246, w: 780, h: 530 }, s1: 232, s2: 796, sh: 84, ss: 38, headY: 868, head: 60, sub: 34, contactY: 1150, ch: 72, cs: 30, big: 180 };
+}
+const ribbon = {
+  id: 'ribbon', name: 'شريط',
+  photoBox(W, H, fmt) { return stripGeo(W, H, fmt).photo; },
+  draw(ctx, W, H, t, S, fmt) {
+    const story = fmt === 'story', g = stripGeo(W, H, fmt), b = g.photo;
+    const bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, '#FFA51F'); bg.addColorStop(0.55, C.orange); bg.addColorStop(1, C.ember);
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    // dots fading out from a corner, a print-like texture
+    ctx.save(); ctx.fillStyle = 'rgba(13,11,42,.09)';
+    for (let y = 18; y < H; y += 36) for (let x = 18; x < W; x += 36) { const r = 7 * clamp(1 - Math.hypot(x - W, y) / (W * 1.1)); if (r > 0.6) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); } }
+    ctx.restore();
+    const shopName = 'المحطة للتقسيط';
+    const words1 = [S.info.head, S.info.sub, shopName].filter(Boolean).join('   •   ');
+    const words2 = [S.info.tape || S.info.line, shopName].filter(Boolean).join('   •   ');
+    // huge hollow words drifting slowly behind everything
+    strip(ctx, W, H, (b.y + b.h / 2), -0.22, 0, null, 'rgba(13,11,42,.13)', shopName, 18, t, g.big, 1, 3);
+    item(ctx, S, 'frame', b, () => {
+      const u = ease.out(seg(t, 0.2, 1.1));
+      const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      ctx.save(); ctx.globalAlpha *= u; ctx.translate(cx, cy); ctx.rotate(-0.035 * u); ctx.scale(1.08 - 0.08 * u, 1.08 - 0.08 * u); ctx.translate(-cx, -cy);
+      const bd = story ? 14 : 12;
+      ctx.save(); ctx.shadowColor = 'rgba(60,20,0,.4)'; ctx.shadowBlur = 50; ctx.shadowOffsetY = 22;
+      rr(ctx, b.x - bd, b.y - bd, b.w + 2 * bd, b.h + 2 * bd, 34); ctx.fillStyle = C.cream; ctx.fill(); ctx.restore();
+      ctx.save(); rr(ctx, b.x, b.y, b.w, b.h, 24); ctx.clip(); photo(ctx, S, b, 1.05 + 0.03 * seg(t, 1.1, DUR)); ctx.restore();
+      ctx.restore();
+    });
+    // the two strips over the photo's edges, running opposite ways
+    strip(ctx, W, H, g.s1, -0.07, g.sh, C.night, C.white, words1, 70, t, g.ss, ease.out(seg(t, 0.45, 1.15)));
+    strip(ctx, W, H, g.s2, 0.055, g.sh, C.white, C.night, words2, -70, t, g.ss, ease.out(seg(t, 0.6, 1.3)));
+    priceChip(ctx, S, b.x + b.w + 4, b.y + 84, t, 1.5, { size: story ? 40 : 34, bg: C.night, fg: C.white, rot: 0.08 });
+    const lb = logoBoxAt(W, g.logoY, g.logoW);
+    item(ctx, S, 'logo', lb, () => logoWithSheen(ctx, W, H, { x: lb.x, y: lb.y, w: lb.w, t: t - 0.2, look: 'night' }, t));
+    headBlock(ctx, S, { x: W / 2, y: g.headY, maxW: W - 140, size: g.head, subSize: g.sub, color: C.night, subColor: C.night, t, t0: 1.1 });
+    contactBlock(ctx, S, W, g.contactY, t, 1.35, { h: g.ch, size: g.cs, bg: C.night, stroke: '', dot: C.orange, dotFg: C.night });
+    grain(ctx, W, H, 0.05);
+  },
+};
+
+// the calm ones first: Abbas likes them best; the two new styles next, so he sees them
+export const DESIGNS = [calm, calm2, glass, ribbon, showroom, cinema, card, quick];
 
 // =====================================================================================
 // بطاقة التواصل — the numbers picture, redone: a card with a transparent edge, to lay on
