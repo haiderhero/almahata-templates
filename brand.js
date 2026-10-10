@@ -57,7 +57,7 @@ export const ease = {
  * Draw the logo.
  *  x, y   top-left of the logo box; w its width (height follows the logo's ratio)
  *  t      seconds since the logo's entrance began (Infinity = settled)
- *  look   'color' (orange mark, white letters) | 'white' | 'indigo' (orange mark, indigo letters) | 'night' (all indigo, for orange grounds)
+ *  look   'color' (orange mark, white letters) | 'white' | 'orange' (all orange) | 'indigo' (orange mark, indigo letters) | 'night' (all indigo, for orange grounds)
  *  parts  'all' | 'mark' (house + icons) | 'icons' (no house) | 'text'
  *  the box (and so x, y, w) is the extent of the parts drawn
  */
@@ -69,7 +69,7 @@ export function drawLogo(ctx, { x, y, w, t = Infinity, look = 'color', parts = '
   const [bx0, by0, bx1] = logoBox(parts);
   const k = w / (bx1 - bx0);
   const markCol = look === 'white' ? C.white : look === 'night' ? C.night : C.orange;
-  const textCol = look === 'indigo' || look === 'night' ? C.night : C.white;
+  const textCol = look === 'indigo' || look === 'night' ? C.night : look === 'orange' ? C.orange : C.white;
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(k, k);

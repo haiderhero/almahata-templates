@@ -182,15 +182,6 @@ function item(ctx, S, id, box, draw) {
 /** a logo of width w, centred by its weight (the eye), not its box */
 function logoBoxAt(W, y, w, parts = 'all') { return { x: opticalX(W, w, parts), y, w, h: w * logoRatio(parts) }; }
 
-/** a soft dark glow behind something light that sits on a photo */
-function scrim(ctx, b, a = 0.5) {
-  const cx = b.x + b.w / 2, cy = b.y + b.h / 2, r = Math.max(b.w, b.h) * 0.78;
-  ctx.save(); ctx.translate(cx, cy); ctx.scale(1, b.h / Math.max(b.w, b.h) * 1.15);
-  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-  g.addColorStop(0, `rgba(13,11,42,${a})`); g.addColorStop(0.55, `rgba(13,11,42,${a * 0.55})`); g.addColorStop(1, 'rgba(13,11,42,0)');
-  ctx.fillStyle = g; ctx.fillRect(-r, -r, 2 * r, 2 * r); ctx.restore();
-}
-
 /** the shop line, alone (it can be moved apart from the numbers) */
 function shopLine(ctx, S, id, W, baseY, size, t, t0, { color = C.white, shadow = true } = {}) {
   if (!S.info.line) return;
@@ -275,10 +266,28 @@ function logoWithSheen(ctx, W, H, opts, t, at = [2.4, 5.2]) {
     g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,.85)'); g.addColorStop(1, 'rgba(255,255,255,0)');
     lc.save(); lc.globalCompositeOperation = 'source-atop'; lc.fillStyle = g; lc.fillRect(opts.x - 200, opts.y - 50, opts.w + 400, h + 100); lc.restore();
   }
-  const k = ctx.getTransform().a;                  // design px -> canvas px (thumbnails are small)
+  rim(ctx, L);
+}
+/** draw a layer with a thin dark rim that hugs its shape (Abbas: «فقط محيط باللوكو»), not a big glow */
+function rim(ctx, L, { r = 2.6, a = 0.6 } = {}) {
+  const k = ctx.getTransform().a;
+  const R = layer(ctx.canvas, 1), rc = R.getContext('2d');
+  rc.setTransform(1, 0, 0, 1, 0, 0); rc.clearRect(0, 0, R.width, R.height);
+  for (let i = 0; i < 12; i++) { const an = (i / 12) * Math.PI * 2; rc.drawImage(L, Math.cos(an) * r * k, Math.sin(an) * r * k); }
+  rc.globalCompositeOperation = 'source-in'; rc.fillStyle = '#07061a'; rc.fillRect(0, 0, R.width, R.height);
+  rc.globalCompositeOperation = 'source-over';
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.shadowColor = 'rgba(7,6,26,.62)'; ctx.shadowBlur = 26 * k; ctx.shadowOffsetY = 4 * k;
-  ctx.drawImage(L, 0, 0); ctx.restore();
+  const a0 = ctx.globalAlpha; ctx.globalAlpha = a0 * a; ctx.drawImage(R, 0, 0);
+  ctx.globalAlpha = a0; ctx.drawImage(L, 0, 0);
+  ctx.restore();
+}
+/** the logo (any part, any look) with that rim */
+function logoRim(ctx, opts, rimOpts) {
+  const L = layer(ctx.canvas, 2), lc = L.getContext('2d');
+  lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, L.width, L.height);
+  lc.setTransform(ctx.getTransform());
+  drawLogo(lc, opts);
+  rim(ctx, L, rimOpts);
 }
 const layers = new WeakMap();
 function layer(c, i) {
@@ -307,89 +316,104 @@ function title(ctx, s, cx, y, maxW, t, t0, size = 64) {
 }
 
 // =====================================================================================
-// 1. البيت — the photo lives inside the logo's house; the house draws itself around it
+// 1. الواجهة — the product on show, like a shop window (Abbas: the house hid the photos, the smoke was not nice):
+//    the photo whole in a rounded frame that rises onto a glossy floor and shows in it,
+//    a warm light behind, a second frame drawn on in orange, slow sparks instead of smoke
 // =====================================================================================
-function houseGeo(W, H, fmt) {
-  if (fmt === 'story') return { L: 90, R: 990, peak: 330, bottom: 1340 };
-  return { L: 130, R: 950, peak: 50, bottom: 970 };
+function showGeo(W, H, fmt) {
+  return fmt === 'story'
+    ? { x: 110, y: 520, w: 860, h: 800, r: 40, logoY: 262, logoW: 300, title: 1478 }
+    : { x: 220, y: 236, w: 640, h: 630, r: 34, logoY: 44, logoW: 240, title: 1150 };
 }
-function housePath(g, r = 30) {
-  const cx = (g.L + g.R) / 2, eave = g.peak + (g.R - g.L) / 2 * 0.84;
-  const p = new Path2D();
-  const pts = [[cx, g.peak], [g.R, eave], [g.R, g.bottom], [g.L, g.bottom], [g.L, eave]];
-  p.moveTo((cx + g.R) / 2, (g.peak + eave) / 2);
-  for (let i = 1; i <= pts.length; i++) {
-    const a = pts[i % pts.length], b = pts[(i + 1) % pts.length];
-    p.arcTo(a[0], a[1], b[0], b[1], r);
+const rnd = (n) => { const v = Math.sin(n * 127.1 + 311.7) * 43758.5453; return v - Math.floor(v); };
+function sparks(ctx, W, H, t, n) {
+  ctx.save();
+  for (let i = 0; i < n; i++) {
+    const sp = 22 + rnd(i + 0.3) * 46, span = H * 0.95;
+    const y = H - ((rnd(i + 0.7) * span + t * sp) % span);
+    const x = rnd(i) * W + Math.sin(t * 0.8 + i) * 14;
+    const a = (0.18 + 0.4 * rnd(i + 0.9)) * (0.65 + 0.35 * Math.sin(t * 2.2 + i * 1.7)) * clamp((H - y) / 160);
+    ctx.globalAlpha = a; ctx.fillStyle = i % 4 ? C.orange : '#ffd9a0';
+    ctx.shadowColor = 'rgba(253,145,4,.9)'; ctx.shadowBlur = 10;
+    ctx.beginPath(); ctx.arc(x, y, 2 + rnd(i + 0.5) * 4.5, 0, Math.PI * 2); ctx.fill();
   }
-  p.closePath();
-  // the outline as two halves, from the middle of the floor up to the roof's peak, so it can
-  // draw itself from both sides at once and meet at the top
-  const half = (side) => {
-    const q = new Path2D();
-    const x = side > 0 ? g.R : g.L;
-    const way = [[x, g.bottom], [x, eave], [cx, g.peak]];
-    q.moveTo(cx, g.bottom);
-    q.arcTo(way[0][0], way[0][1], way[1][0], way[1][1], r);
-    q.arcTo(way[1][0], way[1][1], way[2][0], way[2][1], r);
-    q.lineTo(cx, g.peak);
-    return q;
-  };
-  const halfLen = (g.R - g.L) / 2 + (g.bottom - eave) + Math.hypot(g.R - cx, eave - g.peak);
-  return { p, eave, cx, halves: [half(1), half(-1)], halfLen };
+  ctx.restore();
 }
-
-const house = {
-  id: 'house', name: 'البيت',
-  photoBox(W, H, fmt) { const g = houseGeo(W, H, fmt); return { x: g.L, y: g.peak, w: g.R - g.L, h: g.bottom - g.peak }; },
+const showroom = {
+  id: 'showroom', name: 'الواجهة',
+  photoBox(W, H, fmt) { const g = showGeo(W, H, fmt); return { x: g.x, y: g.y, w: g.w, h: g.h }; },
   draw(ctx, W, H, t, S, fmt) {
     const story = fmt === 'story';
-    const g = houseGeo(W, H, fmt); const hp = housePath(g);
-    // ground: night indigo, smoke at the ends
+    const g = showGeo(W, H, fmt), box = this.photoBox(W, H, fmt);
+    const cx = g.x + g.w / 2, cy = g.y + g.h / 2, floor = g.y + g.h;
+    // the room: indigo going dark to the floor, a warm light behind the frame
     const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, '#1A1650'); bg.addColorStop(0.55, C.night); bg.addColorStop(1, '#07061A');
+    bg.addColorStop(0, '#231d6b'); bg.addColorStop(0.62, C.night); bg.addColorStop(1, '#05041a');
     ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-    laySmoke(ctx, W, H, t, { a: C.orange, b: C.indigo2, amt: 0.9, mode: 'ends', seed: 1.7 }, 0.8);
+    const gl = ctx.createRadialGradient(cx, cy, 40, cx, cy, W * 0.78);
+    gl.addColorStop(0, `rgba(253,145,4,${0.3 + 0.04 * Math.sin(t * 1.4)})`); gl.addColorStop(0.45, 'rgba(253,145,4,.08)'); gl.addColorStop(1, 'rgba(253,145,4,0)');
+    ctx.fillStyle = gl; ctx.fillRect(0, 0, W, H);
+    sparks(ctx, W, H, t, story ? 30 : 24);
+    // the floor: a line of light where the frame stands
+    const fl = ctx.createLinearGradient(0, 0, W, 0);
+    fl.addColorStop(0, 'rgba(255,190,110,0)'); fl.addColorStop(0.5, 'rgba(255,190,110,.55)'); fl.addColorStop(1, 'rgba(255,190,110,0)');
+    ctx.fillStyle = fl; ctx.fillRect(0, floor, W, 2);
 
-    // the house: its glow, the photo inside, the orange line drawn on, the logo's icons on the roof
-    item(ctx, S, 'frame', this.photoBox(W, H, fmt), () => {
-      const gl = ctx.createRadialGradient(W / 2, (g.peak + g.bottom) / 2, 50, W / 2, (g.peak + g.bottom) / 2, W * 0.8);
-      gl.addColorStop(0, `rgba(253,145,4,${0.26 + 0.05 * Math.sin(t * 1.6)})`); gl.addColorStop(1, 'rgba(253,145,4,0)');
-      ctx.fillStyle = gl; ctx.fillRect(-W, -H, 3 * W, 3 * H);
-      const pu = ease.out(seg(t, 0.25, 1.3));
-      ctx.save(); ctx.clip(hp.p);
-      ctx.globalAlpha = pu;
-      photo(ctx, S, this.photoBox(W, H, fmt), 1.08 - 0.06 * pu + 0.02 * seg(t, 1.3, DUR));
-      if (S.fields.title) {
-        const sh = ctx.createLinearGradient(0, g.bottom - 300, 0, g.bottom);
-        sh.addColorStop(0, 'rgba(13,11,42,0)'); sh.addColorStop(1, 'rgba(13,11,42,.8)');
-        ctx.fillStyle = sh; ctx.fillRect(g.L, g.bottom - 300, g.R - g.L, 300);
+    item(ctx, S, 'frame', box, () => {
+      const u = ease.out(seg(t, 0.15, 1.15));
+      const lift = (1 - u) * 90 + Math.sin(Math.max(0, t - 1.15) * 1.3) * 4;
+      const card = (c) => {
+        c.save(); rr(c, g.x, g.y, g.w, g.h, g.r); c.clip();
+        photo(c, S, box, 1.06 - 0.06 * u + 0.02 * seg(t, 1.15, DUR));
+        c.restore();
+      };
+      // a second frame, a step up and to the side, drawn on in orange
+      const d = ease.inOut(seg(t, 0.5, 1.6));
+      if (d > 0) {
+        ctx.save(); ctx.translate(story ? 26 : 22, -(story ? 26 : 22));
+        ctx.strokeStyle = C.orange; ctx.lineWidth = story ? 5 : 4; ctx.lineCap = 'round';
+        const per = 2 * (g.w + g.h);
+        ctx.setLineDash([per * d, per]); rr(ctx, g.x, g.y, g.w, g.h, g.r); ctx.stroke();
+        ctx.restore();
       }
-      ctx.restore();
-      const d = ease.inOut(seg(t, 0, 1.15));
-      ctx.save();
-      ctx.lineWidth = story ? 24 : 20; ctx.strokeStyle = C.orange; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-      ctx.shadowColor = 'rgba(253,145,4,.5)'; ctx.shadowBlur = 26;
-      if (d >= 1) ctx.stroke(hp.p);
-      else if (d > 0) { ctx.setLineDash([hp.halfLen * d, hp.halfLen * 2]); for (const q of hp.halves) ctx.stroke(q); }
-      ctx.restore();
-      const iw = story ? 290 : 220;
-      const ix = g.R - iw * 0.86, iy = Math.max(story ? 230 : 8, g.peak - iw * logoRatio('icons') * 0.42);
-      ctx.save(); ctx.shadowColor = 'rgba(7,6,26,.7)'; ctx.shadowBlur = 36;
-      drawLogo(ctx, { x: ix, y: iy, w: iw, t: t - 0.55, parts: 'icons' });
+      // the reflection in the floor: the frame upside down, fading out
+      const L = layer(ctx.canvas, 3), lc = L.getContext('2d');
+      lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, L.width, L.height);
+      lc.setTransform(ctx.getTransform());
+      lc.translate(0, 2 * floor + lift); lc.scale(1, -1);
+      card(lc);
+      lc.setTransform(ctx.getTransform());
+      lc.globalCompositeOperation = 'destination-in';
+      const rf = lc.createLinearGradient(0, floor, 0, floor + g.h * 0.32);
+      rf.addColorStop(0, 'rgba(0,0,0,.32)'); rf.addColorStop(1, 'rgba(0,0,0,0)');
+      lc.fillStyle = rf; lc.fillRect(-W, floor, 3 * W, H);
+      lc.globalCompositeOperation = 'source-over';
+      ctx.save(); ctx.globalAlpha *= u; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(L, 0, 0); ctx.restore();
+      // the frame itself
+      ctx.save(); ctx.globalAlpha *= u; ctx.translate(0, -lift);
+      ctx.save(); ctx.shadowColor = 'rgba(3,2,15,.6)'; ctx.shadowBlur = 60; ctx.shadowOffsetY = 26;
+      rr(ctx, g.x, g.y, g.w, g.h, g.r); ctx.fillStyle = C.night; ctx.fill(); ctx.restore();
+      card(ctx);
+      // a light passing over the glass, once
+      const su = seg(t, 2.1, 3.0);
+      if (su > 0 && su < 1) {
+        ctx.save(); rr(ctx, g.x, g.y, g.w, g.h, g.r); ctx.clip();
+        const sx = g.x - g.w * 0.5 + g.w * 2 * ease.inOut(su);
+        const sh = ctx.createLinearGradient(sx - 160, g.y, sx + 160, g.y + g.h * 0.4);
+        sh.addColorStop(0, 'rgba(255,255,255,0)'); sh.addColorStop(0.5, 'rgba(255,255,255,.22)'); sh.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = sh; ctx.fillRect(g.x, g.y, g.w, g.h); ctx.restore();
+      }
+      ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,.28)'; rr(ctx, g.x + 1, g.y + 1, g.w - 2, g.h - 2, g.r); ctx.stroke();
       ctx.restore();
     });
 
-    titleItem(ctx, S, W, g.bottom - (story ? 60 : 50), g.R - g.L - 120, t, 1.3, story ? 60 : 52);
-    const eave = g.peak + (g.R - g.L) / 2 * 0.84;
-    badgeItem(ctx, S, g.L + 40, eave + (story ? 70 : 40), story ? 120 : 100, 1.45, t, { rot: -0.16 });
-
-    // the name under the house, and the numbers low on the screen
-    const tw = story ? 420 : 330;
-    const lb = logoBoxAt(W, g.bottom + (story ? 34 : 24), tw, 'text');
-    item(ctx, S, 'logo', lb, () => drawLogo(ctx, { x: lb.x, y: lb.y, w: tw, t: t - 0.3, parts: 'text' }));
+    badgeItem(ctx, S, g.x + (story ? 30 : 24), g.y + (story ? 40 : 34), story ? 120 : 96, 1.45, t, { rot: -0.16 });
+    const lb = logoBoxAt(W, g.logoY, g.logoW);
+    item(ctx, S, 'logo', lb, () => logoWithSheen(ctx, W, H, { x: lb.x, y: lb.y, w: lb.w, t: t - 0.2 }, t));
+    titleItem(ctx, S, W, g.title, W - 160, t, 1.2, story ? 60 : 50);
+    shopLine(ctx, S, 'line', W, story ? 1556 : 1214, story ? 34 : 30, t, 1.15);
     contactBlock(ctx, S, W, story ? 1582 : 1238, t, 1.25, { h: story ? 80 : 72, size: story ? 34 : 30 });
-    grain(ctx, W, H, 0.05);
+    grain(ctx, W, H, 0.04);
   },
 };
 
@@ -416,21 +440,9 @@ const cinema = {
     ctx.fillStyle = fg; ctx.fillRect(0, fy, W, H - fy);
     laySmoke(ctx, W, H, t, { a: C.orange, b: C.indigo2, amt: 0.8, mode: 'bottom', seed: 4.2, rise: 1.2 }, 0.55);
 
-    // viewfinder corners
-    const cu = ease.out(seg(t, 0.15, 0.85));
-    const m = story ? 56 : 44, L = (story ? 84 : 70) * cu;
-    ctx.save(); ctx.strokeStyle = C.orange; ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.globalAlpha = cu;
-    for (const [x, y, sx, sy] of [[m, m, 1, 1], [W - m, m, -1, 1], [m, H - m, 1, -1], [W - m, H - m, -1, -1]]) {
-      ctx.beginPath(); ctx.moveTo(x, y + sy * L); ctx.lineTo(x, y); ctx.lineTo(x + sx * L, y); ctx.stroke();
-    }
-    ctx.restore();
-
-    // the logo, small, with a soft shade of its own so it reads on any photo
+    // the logo, small; a thin rim round its shape keeps it readable on any photo (no corners, no shade: Abbas)
     const lb = logoBoxAt(W, story ? 262 : 56, story ? 360 : 280);
-    item(ctx, S, 'logo', lb, () => {
-      scrim(ctx, { x: lb.x - 40, y: lb.y - 30, w: lb.w + 80, h: lb.h + 60 }, 0.6 * ease.out(seg(t, 0.1, 0.8)));
-      logoWithSheen(ctx, W, H, { x: lb.x, y: lb.y, w: lb.w, t: t - 0.2 }, t);
-    });
+    item(ctx, S, 'logo', lb, () => logoWithSheen(ctx, W, H, { x: lb.x, y: lb.y, w: lb.w, t: t - 0.2 }, t));
 
     // low on the screen: the product (if written), the shop line, the numbers
     titleItem(ctx, S, W, story ? 1478 : 1150, W - 160, t, 1.0, story ? 60 : 50);
@@ -610,22 +622,10 @@ const quick = {
     ctx.fillStyle = fg; ctx.fillRect(0, fy, W, H - fy);
     laySmoke(ctx, W, H, t, { a: C.orange, b: C.indigo2, amt: 0.7, mode: 'bottom', seed: 9.1, rise: 0.8 }, 0.5);
 
-    // the logo plate, small and centred
+    // the logo, small and centred: no plate behind it, only the thin rim round its shape (Abbas)
     const lw = story ? 250 : 200, lh = lw * logoRatio();
-    const padX = story ? 36 : 28, padY = story ? 24 : 18;
-    const plate = { x: (W - lw) / 2 - padX, y: (story ? 262 : 52) - padY, w: lw + 2 * padX, h: lh + 2 * padY };
-    const lb = { x: opticalX(W, lw), y: plate.y + padY, w: lw, h: lh };
-    item(ctx, S, 'logo', plate, () => {
-      const pa = ease.back(seg(t, 0.1, 0.7));
-      const pcx = plate.x + plate.w / 2, pcy = plate.y + plate.h / 2;
-      ctx.save(); ctx.translate(pcx, pcy); ctx.scale(0.85 + 0.15 * pa, 0.85 + 0.15 * pa); ctx.translate(-pcx, -pcy);
-      ctx.globalAlpha = clamp(pa);
-      rr(ctx, plate.x, plate.y, plate.w, plate.h, 30);
-      ctx.fillStyle = 'rgba(13,11,42,.72)'; ctx.fill();
-      ctx.strokeStyle = 'rgba(253,145,4,.55)'; ctx.lineWidth = 3; ctx.stroke();
-      ctx.restore();
-      logoWithSheen(ctx, W, H, { x: lb.x, y: lb.y, w: lw, t: t - 0.25 }, t, [2.2, 5.0]);
-    });
+    const lb = { x: opticalX(W, lw), y: story ? 262 : 52, w: lw, h: lh };
+    item(ctx, S, 'logo', lb, () => logoWithSheen(ctx, W, H, { x: lb.x, y: lb.y, w: lw, t: t - 0.25 }, t, [2.2, 5.0]));
 
     // the bar: an orange frame with white words (Abbas), or filled orange if he picks it
     const bh = story ? 108 : 96, bx = story ? 64 : 60, by = story ? 1556 : 1208;
@@ -674,8 +674,8 @@ const quick = {
 // 5–6. هادئ — calm, the way the big residential projects post (Abbas: «قالب هادئ ولطيف…
 //    مريح للعين»): the photo clean and whole, thin white lines, the mark and the name small in the
 //    top corners, a big line and a light one bottom-right, the numbers small bottom-left.
-//    A: a level line across + an arc that wraps the words.  B: a short stub, a quarter arc down,
-//    a straight drop to the bottom edge.
+//    A: a level line across (its arc went, Abbas).  B: a short stub, a quarter arc down,
+//    a straight drop to the bottom edge. The mark and the name are orange (Abbas).
 // =====================================================================================
 function calmGeo(W, H, fmt, v) {
   const story = fmt === 'story';
@@ -689,11 +689,8 @@ function calmGeo(W, H, fmt, v) {
     contactX: m, contactY: story ? 1556 : 1206, contactSize: story ? 34 : 29,
   };
   if (v === 1) {
-    g.lineY = story ? H * 0.335 : H * 0.36;
+    g.lineY = story ? H * 0.29 : H * 0.315;
     g.lineX1 = W * 0.7;
-    // the arc: its leftmost point sits just right of the numbers, the words stay inside it
-    g.arc = story ? { cx: W * 1.037, cy: H * 0.771, r: W * 0.667 } : { cx: W * 0.99, cy: H * 0.822, r: W * 0.6 };
-    g.arcEndY = story ? H * 0.47 : H * 0.5;
   } else {
     g.stubY = story ? H * 0.46 : H * 0.44;
     g.stubX = W * 0.08;
@@ -712,12 +709,6 @@ function calmLines(ctx, W, H, t, g, v) {
     const p1 = ease.inOut(seg(t, 0.35, 1.5));
     if (p1 > 0) { ctx.beginPath(); ctx.moveTo(0, g.lineY); ctx.lineTo(g.lineX1 * p1, g.lineY); ctx.stroke(); }
     dot = { x: g.lineX1, y: g.lineY, at: 1.45 };
-    // the arc, from where it enters at the bottom edge, up round the words
-    const { cx, cy, r } = g.arc;
-    const a0 = Math.PI - Math.asin(Math.min(1, (H - cy) / r));        // the bottom edge
-    const a1 = Math.PI + Math.asin(Math.min(1, (cy - g.arcEndY) / r)); // where it stops, up right
-    const p2 = ease.inOut(seg(t, 0.55, 1.95));
-    if (p2 > 0) { ctx.beginPath(); ctx.arc(cx, cy, r, a0, a0 + (a1 - a0) * p2); ctx.stroke(); }
   } else {
     // a short stub from the left edge, a quarter arc down, then straight to the bottom edge
     const cx = g.stubX + g.r, cy = g.stubY, bottom = cy + g.r;
@@ -839,14 +830,13 @@ function makeCalm(id, name, v) {
 
       calmLines(ctx, W, H, t, g, v);
 
-      // the mark top-left, the name top-right, both small and white
+      // the mark top-left, the name top-right, both small and orange
       const mh = g.markW * logoRatio('mark');
       const mb = { x: g.m, y: g.markY, w: g.markW, h: mh };
       item(ctx, S, 'logo', mb, () => {
         const u = ease.out(seg(t, 0.5, 1.15));
         ctx.save(); ctx.globalAlpha *= u; ctx.translate(0, (1 - u) * 14);
-        ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 12;
-        drawLogo(ctx, { x: mb.x, y: mb.y, w: mb.w, parts: 'mark', look: 'white' });
+        logoRim(ctx, { x: mb.x, y: mb.y, w: mb.w, parts: 'mark', look: 'orange' });
         ctx.restore();
       });
       const nh = g.nameW * logoRatio('text');
@@ -854,8 +844,7 @@ function makeCalm(id, name, v) {
       item(ctx, S, 'name', nb, () => {
         const u = ease.out(seg(t, 0.62, 1.25));
         ctx.save(); ctx.globalAlpha *= u; ctx.translate(0, (1 - u) * 14);
-        ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 12;
-        drawLogo(ctx, { x: nb.x, y: nb.y, w: nb.w, parts: 'text', look: 'white' });
+        logoRim(ctx, { x: nb.x, y: nb.y, w: nb.w, parts: 'text', look: 'orange' });
         ctx.restore();
       });
 
@@ -869,7 +858,7 @@ const calm = makeCalm('calm', 'هادئ', 1);
 const calm2 = makeCalm('calm2', 'هادئ 2', 2);
 
 // the calm ones first: Abbas likes them best
-export const DESIGNS = [calm, calm2, house, cinema, card, quick];
+export const DESIGNS = [calm, calm2, showroom, cinema, card, quick];
 
 // =====================================================================================
 // بطاقة التواصل — the numbers picture, redone: a card with a transparent edge, to lay on
